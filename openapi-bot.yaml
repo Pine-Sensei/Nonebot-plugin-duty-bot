@@ -1,0 +1,513 @@
+openapi: 3.1.0
+info:
+  title: Duty Board Bot API
+  version: 1.0.0
+  description: >-
+    由服务端 BOT_API_KEY 环境变量认证的机器人服务端 API。该 key 只能授权
+    /api/bot 命名空间。请勿将真实 key 写入本文件；调用方通过 HTTP Bearer
+    Authorization Header 传入。详细说明见 BOT-API.md。
+servers:
+  - url: http://127.0.0.1:8787
+    description: 本地开发默认地址；生产环境替换为实际 HTTPS 服务地址
+security:
+  - BotBearer: []
+tags:
+  - name: Roster
+    description: 已发布排班查询
+  - name: Student data
+    description: 课表、请假记录和通知查询
+  - name: Leaves
+    description: 机器人代学生提交请假
+paths:
+  /api/bot/roster:
+    get:
+      tags: [Roster]
+      operationId: getRoster
+      summary: 查询已发布排班
+      description: >-
+        传 student_no 时仅返回该学生自己的分配和所属班次；省略时返回整体有效排班。
+        学号与 QQ 身份绑定由机器人服务端负责校验。
+      parameters:
+        - $ref: '#/components/parameters/StudentNoQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Roster'
+              example:
+                code: 0
+                message: ok
+                data:
+                  date: '2026-10-26'
+                  timezone: Asia/Shanghai
+                  assignments: []
+                  slots: []
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/bot/today:
+    get:
+      tags: [Roster]
+      operationId: getTodayRoster
+      summary: 查询北京时间今日排班
+      description: 仅返回服务端 Asia/Shanghai 当前日期的班次；未解析出日期的历史记录不会进入今日结果。
+      parameters:
+        - $ref: '#/components/parameters/StudentNoQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/Roster'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/bot/students/{studentNo}/timetable:
+    get:
+      tags: [Student data]
+      operationId: getStudentTimetable
+      summary: 查询学生课表
+      parameters:
+        - $ref: '#/components/parameters/StudentNoPath'
+        - name: semester_id
+          in: query
+          required: false
+          description: 指定学期 ID；未传时优先取系统当前学期，否则取最近课表。
+          schema: {type: string}
+      responses:
+        '200':
+          description: 查询成功；未找到课表时 timetable 为 null
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: object
+                        required: [timetable]
+                        properties:
+                          timetable:
+                            oneOf:
+                              - $ref: '#/components/schemas/Timetable'
+                              - type: 'null'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/bot/students/{studentNo}/leaves:
+    get:
+      tags: [Student data]
+      operationId: getStudentLeaves
+      summary: 查询学生请假记录
+      parameters:
+        - $ref: '#/components/parameters/StudentNoPath'
+      responses:
+        '200':
+          description: 查询成功，按申请时间倒序；不包含幂等键或内部操作人字段
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: object
+                        required: [leaves]
+                        properties:
+                          leaves:
+                            type: array
+                            items: {$ref: '#/components/schemas/Leave'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/bot/students/{studentNo}/notices:
+    get:
+      tags: [Student data]
+      operationId: getStudentNotices
+      summary: 查询学生通知
+      description: 返回最近最多 200 条，按 created_at、id 倒序；机器人可按 id 去重。
+      parameters:
+        - $ref: '#/components/parameters/StudentNoPath'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: object
+                        required: [notices]
+                        properties:
+                          notices:
+                            type: array
+                            maxItems: 200
+                            items: {$ref: '#/components/schemas/Notice'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/bot/leaves:
+    post:
+      tags: [Leaves]
+      operationId: submitStudentLeave
+      summary: 代学生提交请假
+      description: >-
+        调用方必须先验证 QQ 用户与 student_no 的绑定。服务端只校验有效排班、版本、
+        未来班次、原因和幂等键，不负责身份绑定。请假提交后服务端立即尝试自动处理；
+        code=0 不代表已批准，须检查 leave.status。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: >-
+            推荐放在 Header；也兼容 JSON idempotency_key，Header 优先。ASCII 字母、数字、_ . : -，长度 8–128。
+            同一逻辑请求的重试必须复用相同 key 和原始参数。
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+            pattern: '^[A-Za-z0-9_.:-]{8,128}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LeaveRequest'}
+            example:
+              student_no: '2025123456789'
+              assignment_id: assignment-id-from-roster
+              version: 0
+              reason: 请假原因
+      responses:
+        '200':
+          description: 请求已接收并完成自动处理尝试；检查 leave.status 判断业务结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: object
+                        required: [leave]
+                        properties:
+                          leave: {$ref: '#/components/schemas/LeaveMutation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '429':
+          description: 达到机器人来源或学号级限流
+          headers:
+            Retry-After:
+              description: 建议等待秒数，与 JSON data.retryAfterSeconds 一致
+              schema: {type: integer, minimum: 1}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '500': {$ref: '#/components/responses/ServerError'}
+components:
+  securitySchemes:
+    BotBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: BOT_API_KEY
+      description: 从服务端环境变量 BOT_API_KEY 读取；不要在文档或客户端中保存真实值。
+  parameters:
+    StudentNoQuery:
+      name: student_no
+      in: query
+      required: false
+      description: 可选学号；省略时读取整体已发布排班。
+      schema: {type: string}
+    StudentNoPath:
+      name: studentNo
+      in: path
+      required: true
+      description: 学生学号，作为路径参数应进行 URL 编码。
+      schema: {type: string, minLength: 1}
+  responses:
+    BadRequest:
+      description: 请求格式或业务字段无效
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    Unauthorized:
+      description: Bearer key 缺失、无效或未配置
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    Forbidden:
+      description: key 已认证，但机器人不允许此操作
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    Conflict:
+      description: 幂等键参数冲突、版本过期或业务状态冲突
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    PayloadTooLarge:
+      description: 请求体超过 16 KiB
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    UnsupportedMediaType:
+      description: 写请求必须使用 application/json
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    RateLimited:
+      description: 达到限流阈值；请遵循 Retry-After
+      headers:
+        Retry-After:
+          description: 建议等待秒数，与 JSON data.retryAfterSeconds 一致
+          schema: {type: integer, minimum: 1}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    ServerError:
+      description: 未预期的服务端错误
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+  schemas:
+    Envelope:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, const: 0}
+        message: {type: string}
+        data: {type: object}
+    ErrorEnvelope:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, minimum: 400}
+        message: {type: string}
+        data:
+          oneOf:
+            - type: object
+              properties:
+                retryAfterSeconds: {type: integer, minimum: 1}
+                limitScope:
+                  type: array
+                  items: {type: string}
+            - type: 'null'
+    Roster:
+      type: object
+      required: [date, timezone, assignments, slots]
+      properties:
+        date: {type: string, format: date}
+        timezone: {type: string, const: Asia/Shanghai}
+        assignments:
+          type: array
+          items: {$ref: '#/components/schemas/Assignment'}
+        slots:
+          type: array
+          items: {$ref: '#/components/schemas/Slot'}
+    Assignment:
+      type: object
+      required: [id, slot_id, student_no, name, role, version, active, cycle_id, cycle_name, week_no, weekday, date, start_time, end_time, post_name, teammates]
+      properties:
+        id: {type: string}
+        slot_id: {type: string}
+        student_no: {type: string}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        version: {type: integer, minimum: 0}
+        active: {type: integer, const: 1}
+        cycle_id: {type: string}
+        cycle_name: {type: string}
+        week_no: {type: integer, minimum: 1}
+        weekday: {type: integer, minimum: 1, maximum: 7}
+        date:
+          oneOf:
+            - {type: string, format: date}
+            - {type: 'null'}
+        start_time: {type: string, pattern: '^\d{2}:\d{2}$'}
+        end_time: {type: string, pattern: '^\d{2}:\d{2}$'}
+        post_name: {type: string}
+        teammates:
+          type: array
+          items:
+            type: object
+            required: [name, role]
+            properties:
+              name: {type: string}
+              role: {$ref: '#/components/schemas/Role'}
+    Slot:
+      type: object
+      required: [slot_id, cycle_id, cycle_name, week_no, weekday, date, start_time, end_time, post_name, primary_need, backup_need]
+      properties:
+        slot_id: {type: string}
+        cycle_id: {type: string}
+        cycle_name: {type: string}
+        week_no: {type: integer, minimum: 1}
+        weekday: {type: integer, minimum: 1, maximum: 7}
+        date:
+          oneOf:
+            - {type: string, format: date}
+            - {type: 'null'}
+        start_time: {type: string, pattern: '^\d{2}:\d{2}$'}
+        end_time: {type: string, pattern: '^\d{2}:\d{2}$'}
+        post_name: {type: string}
+        primary_need: {type: integer, minimum: 0}
+        backup_need: {type: integer, minimum: 0}
+    Role:
+      type: string
+      enum: [primary, backup]
+    Timetable:
+      type: object
+      required: [student_no, semester_id, source, fetched_at, semester_start, period_clock, activities, occupancy]
+      properties:
+        student_no: {type: string}
+        semester_id: {type: string}
+        source: {type: string}
+        fetched_at: {type: integer, description: Unix 毫秒时间戳}
+        semester_start:
+          oneOf:
+            - {type: string, format: date}
+            - {type: 'null'}
+        period_clock:
+          oneOf:
+            - {type: array, items: {$ref: '#/components/schemas/PeriodClockEntry'}}
+            - {type: 'null'}
+        activities:
+          type: array
+          items:
+            type: object
+            required: [name, no, teachers, place, kind, weekDay, startUnit, endUnit, weekState, weekLabel, source]
+            properties:
+              name: {type: string}
+              no: {type: string}
+              teachers: {type: string}
+              place: {type: string}
+              kind: {type: string}
+              weekDay: {type: integer, minimum: 1, maximum: 7}
+              startUnit: {type: integer, minimum: 1}
+              endUnit: {type: integer, minimum: 1}
+              weekState: {type: string}
+              weekLabel: {type: string}
+              source: {type: string}
+        occupancy:
+          type: array
+          description: 周 × 时段占用矩阵；每周 91 个位置，0 空闲、1 占用。
+          items:
+            type: array
+            minItems: 91
+            maxItems: 91
+            items: {type: integer, enum: [0, 1]}
+    PeriodClockEntry:
+      type: object
+      required: [unit, label, start, end]
+      properties:
+        unit: {type: integer, minimum: 1, maximum: 13}
+        label: {type: string}
+        start: {type: string, pattern: '^\d{1,2}:\d{2}$'}
+        end: {type: string, pattern: '^\d{1,2}:\d{2}$'}
+    LeaveRequest:
+      type: object
+      required: [student_no, assignment_id, version, reason]
+      properties:
+        student_no: {type: string, minLength: 1}
+        assignment_id: {type: string, minLength: 1}
+        version: {type: integer, minimum: 0}
+        reason: {type: string, minLength: 1, maxLength: 500}
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_.:-]{8,128}$'
+    Leave:
+      type: object
+      required: [id, assignment_id, student_no, reason, status, replacement_id, compensation_id, requested_at, handled_at, assignment_version, attention_code, version, name, role, post_name, start_time, end_time, week_no, weekday, date]
+      properties:
+        id: {type: string}
+        assignment_id: {type: string}
+        student_no: {type: string}
+        reason: {type: string}
+        status: {type: string, enum: [pending, approved, rejected, needs_attention]}
+        replacement_id:
+          oneOf:
+            - {type: string}
+            - {type: 'null'}
+        compensation_id:
+          oneOf:
+            - {type: string}
+            - {type: 'null'}
+        requested_at: {type: integer, description: Unix 毫秒时间戳}
+        handled_at:
+          oneOf:
+            - {type: integer, description: Unix 毫秒时间戳}
+            - {type: 'null'}
+        assignment_version: {type: integer, minimum: 0}
+        attention_code: {type: string}
+        version: {type: integer, minimum: 0}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        post_name: {type: string}
+        start_time: {type: string}
+        end_time: {type: string}
+        week_no: {type: integer, minimum: 1}
+        weekday: {type: integer, minimum: 1, maximum: 7}
+        date:
+          oneOf:
+            - {type: string, format: date}
+            - {type: 'null'}
+    LeaveMutation:
+      type: object
+      required: [id, assignment_id, student_no, reason, status, replacement_id, compensation_id, requested_at, handled_by, handled_at, idempotency_key, assignment_version, attention_code, request_actor, version]
+      description: >-
+        POST 写请求当前返回的原始请假记录字段。与 GET 请假列表不同，包含幂等键和操作来源字段。
+      properties:
+        id: {type: string}
+        assignment_id: {type: string}
+        student_no: {type: string}
+        reason: {type: string}
+        status: {type: string, enum: [pending, approved, rejected, needs_attention]}
+        replacement_id:
+          oneOf:
+            - {type: string}
+            - {type: 'null'}
+        compensation_id:
+          oneOf:
+            - {type: string}
+            - {type: 'null'}
+        requested_at: {type: integer, description: Unix 毫秒时间戳}
+        handled_by:
+          type: string
+        handled_at:
+          oneOf:
+            - {type: integer, description: Unix 毫秒时间戳}
+            - {type: 'null'}
+        idempotency_key: {type: string}
+        assignment_version: {type: integer, minimum: 0}
+        attention_code: {type: string}
+        request_actor: {type: string}
+        version: {type: integer, minimum: 0}
+    Notice:
+      type: object
+      required: [id, message, created_at, read_at]
+      properties:
+        id: {type: string}
+        message: {type: string}
+        created_at: {type: integer, description: Unix 毫秒时间戳}
+        read_at:
+          oneOf:
+            - {type: integer, description: Unix 毫秒时间戳}
+            - {type: 'null'}

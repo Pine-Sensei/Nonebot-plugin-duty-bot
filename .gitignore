@@ -1,0 +1,50 @@
+# Python 字节码与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 测试与工具缓存
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 打包产物
+build/
+dist/
+*.egg-info/
+
+# 环境变量与密钥
+.env
+.env.*
+
+# IDE / 编辑器
+.trae/
+.idea/
+.vscode/
+
+# 浏览器测试截图
+.screenshots/
+
+# 参考文档仓库克隆（本地资料，不入库）
+NoneBot2/
+onebot-11-master/
+
+# 运行时数据库产物（SQLite 及备份轮转文件）
+*.db
+*.db-wal
+*.db-shm
+*.bak
+*.bak.old
+
+# 操作系统
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+body { margin: 0; padding: 20px; background: #eef1f7; font-family: "Microsoft YaHei", sans-serif; }
+.card { background: #ffffff; border-radius: 12px; padding: 22px 26px; }
+.title { font-size: 20px; font-weight: bold; color: #24335a; }
+.subtitle { font-size: 14px; color: #6b7690; margin-top: 4px; }
+table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+th { background: #e8edf9; color: #46557e; font-size: 13px; padding: 9px 10px; text-align: left; border-radius: 4px; }
+td { font-size: 13px; color: #333a4d; padding: 9px 10px; border-bottom: 1px solid #edf0f6; }
+tr.odd td { background: #f9fafe; }
+.empty { font-size: 14px; color: #8a93a8; text-align: center; padding: 18px 0; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title">{{ view.title }}</div>
+  <div class="subtitle">{{ view.date_display }}</div>
+  {% if view.rows %}
+  <table>
+    <tr><th>时间</th><th>岗位</th><th>主值</th><th>备值</th></tr>
+    {% for row in view.rows %}
+    <tr class="{{ loop.cycle('odd', 'even') }}">
+      <td>{{ row.time_range }}</td>
+      <td>{{ row.post_name }}</td>
+      <td>{{ row.primary }}</td>
+      <td>{{ row.backup }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">无值班安排</div>
+  {% endif %}
+</div>
+</body>
+</html>

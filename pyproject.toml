@@ -1,0 +1,52 @@
+[project]
+name = "nonebot-plugin-duty-bot"
+version = "0.1.0"
+description = "值班排班 QQ 机器人插件：QQ-学号绑定、个人排班查询、值班前提醒、每周预告与群播报"
+authors = [{ name = "duty-bot developers" }]
+license = { text = "GPL-3.0-or-later" }
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["nonebot", "nonebot2", "onebot", "duty", "roster", "schedule"]
+dependencies = [
+    "nonebot2>=2.3.0",
+    "nonebot-adapter-onebot>=2.3.0",
+    "httpx>=0.27.0",
+    "aiosqlite>=0.20.0",
+    "jinja2>=3.1.0",
+    "tzdata>=2024.1",
+    "nonebot-plugin-apscheduler>=0.4.0",
+    "nonebot-plugin-localstore>=0.7.0",
+    "nonebot-plugin-htmlkit>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/duty-bot/nonebot-plugin-duty-bot"
+
+[project.optional-dependencies]
+test = [
+    "nonebug>=0.4.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "fastapi>=0.93.0",
+    "uvicorn>=0.20.0",
+    "websockets>=10.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nonebot_plugin_duty_bot"]
+
+[tool.hatch.build.targets.sdist]
+include = ["nonebot_plugin_duty_bot", "tests", "README.md"]
+
+[tool.nonebot]
+adapters = [{ name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11" }]
+plugins = ["nonebot_plugin_duty_bot"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+testpaths = ["tests"]
