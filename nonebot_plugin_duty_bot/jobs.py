@@ -50,7 +50,6 @@ from .timeutil import (
     format_date_cn,
     next_week_range,
     now_beijing,
-    this_week_range,
 )
 
 require("nonebot_plugin_apscheduler")
@@ -134,7 +133,7 @@ async def broadcast_group_week(bot: Bot, monday: date, *, title: str) -> SendRes
             bot,
             CHAT_GROUP,
             plugin_config.dutybot_group_id,
-            f"{title}：本周无值班安排",
+            f"{title}：无值班安排",
             CAT_BROADCAST,
         )
     view = build_group_week_view(title, assignments)
@@ -283,10 +282,10 @@ async def _job_personal_weekly() -> None:
 
 
 async def _job_group_weekly() -> None:
-    """群每周排班预告：本周（周一~周日）名单按日期分组播报（图片）。"""
+    """群每周排班预告：下周（周一~周日）名单按日期分组播报（图片）。"""
     db = get_db()
     now = now_beijing()
-    monday, _ = this_week_range(now.date())
+    monday, _ = next_week_range(now.date())
     key = monday.isoformat()
     state = await db.get_task_state(TASK_GROUP_WEEKLY)
     if state and state.status == "success" and state.business_key == key:
@@ -300,7 +299,7 @@ async def _job_group_weekly() -> None:
         await db.set_task_state(TASK_GROUP_WEEKLY, "failed", key, "无可用机器人连接")
         return
     try:
-        result = await broadcast_group_week(bot, monday, title="本周值班安排")
+        result = await broadcast_group_week(bot, monday, title="下周值班安排")
     except DutyApiError as e:
         logger.warning(f"群每周预告本期（{key}）接口异常: {e.message}")
         await db.set_task_state(TASK_GROUP_WEEKLY, "failed", key, e.message)

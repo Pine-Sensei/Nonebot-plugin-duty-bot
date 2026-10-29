@@ -199,7 +199,7 @@ async def _handle_replay(matcher: Matcher, bot: Bot, event, args = CommandArg())
         if task_id == TASK_TOMORROW:
             result = await broadcast_group_day(bot, day, title="明日值班安排")
         else:
-            result = await broadcast_group_week(bot, day, title="本周值班安排")
+            result = await broadcast_group_week(bot, day, title="下周值班安排")
     except DutyApiError as e:
         logger.warning(f"重播接口异常: {e.message}")
         await reply(matcher, bot, event, api_error_reply())

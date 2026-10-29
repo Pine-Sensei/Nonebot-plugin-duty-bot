@@ -44,7 +44,7 @@ plugins = ["nonebot_plugin_duty_bot"]
 | `dutybot_remind_interval` | int | `30` | 值班提醒轮询间隔（分钟） |
 | `dutybot_remind_window` | int | `120` | 值班提醒窗口：班次开始前多少分钟内提醒 |
 | `dutybot_personal_weekly_cron` | str | `"0 19 * * sun"` | 个人每周排班预告 cron（北京时间） |
-| `dutybot_group_weekly_cron` | str | `"0 8 * * mon"` | 群每周排班预告 cron（北京时间） |
+| `dutybot_group_weekly_cron` | str | `"0 21 * * sun"` | 群每周排班预告 cron（北京时间） |
 | `dutybot_tomorrow_cron` | str | `"0 21 * * *"` | 明日值班播报 cron（北京时间） |
 | `dutybot_rate_private_per_min` | int | `20` | 私聊发送限流（条/分钟） |
 | `dutybot_rate_group_per_min` | int | `10` | 群聊发送限流（条/分钟） |
@@ -90,7 +90,7 @@ dutybot_admins=[10000]
 | `/绑定列表` | 查看全部绑定（分段展示） |
 | `/绑定 QQ号 学号 姓名` | 人工绑定（无排班学生使用） |
 | `/解绑 QQ号` | 解除指定绑定 |
-| `/重播 [明日|每周]` | 补发发送失败的群播报；无参自动选最近失败期 |
+| `/重播 [明日\|每周]` | 补发发送失败的群播报；无参自动选最近失败期 |
 
 ## 定时任务
 
@@ -98,7 +98,7 @@ dutybot_admins=[10000]
 
 - **值班前提醒**：每 `dutybot_remind_interval` 分钟轮询，班次开始前 `dutybot_remind_window` 分钟内私聊提醒，逐班次去重（重启后窗口内允许重复一次）
 - **个人每周排班预告**：`dutybot_personal_weekly_cron`（默认周日 19:00），私聊推送下周排班图片
-- **群每周排班预告**：`dutybot_group_weekly_cron`（默认周一 08:00），本周排班按日期分组图片播报
+- **群每周排班预告**：`dutybot_group_weekly_cron`（默认周日 21:00），下周排班按日期分组图片播报
 - **明日值班播报**：`dutybot_tomorrow_cron`（默认每日 21:00），明日值班图片播报
 
 ## 部署注意事项

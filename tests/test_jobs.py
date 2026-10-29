@@ -235,12 +235,12 @@ async def test_personal_weekly_partial_failure(app: App, fake_api, monkeypatch, 
 
 
 async def test_group_weekly(app: App, fake_api, monkeypatch, patch_render):
-    """群每周预告：本周班次按日期分组图片播报，本周一为业务键。"""
+    """群每周预告：下周班次按日期分组图片播报，下周一为业务键。"""
     from nonebot_plugin_duty_bot import jobs
     from nonebot_plugin_duty_bot.storage import TASK_GROUP_WEEKLY, get_db
-    from nonebot_plugin_duty_bot.timeutil import this_week_range
+    from nonebot_plugin_duty_bot.timeutil import next_week_range
 
-    monday, sunday = this_week_range(_today())
+    monday, sunday = next_week_range(_today())
     fake_api.roster.assignments = [
         make_assignment(id="1", date=monday.isoformat()),
         make_assignment(id="2", date=sunday.isoformat(), slot_id="s2", start_time="14:00"),
@@ -262,10 +262,10 @@ async def test_group_weekly(app: App, fake_api, monkeypatch, patch_render):
 
 
 async def test_group_weekly_empty_week(app: App, fake_api, monkeypatch):
-    """回归：本周无班次时纯文本播报并正确落库（曾漏传 category 致 TypeError、状态不落库）。"""
+    """回归：下周无班次时纯文本播报并正确落库（曾漏传 category 致 TypeError、状态不落库）。"""
     from nonebot_plugin_duty_bot import jobs
     from nonebot_plugin_duty_bot.storage import TASK_GROUP_WEEKLY, get_db
-    from nonebot_plugin_duty_bot.timeutil import this_week_range
+    from nonebot_plugin_duty_bot.timeutil import next_week_range
 
     fake_api.roster.assignments = []
     bot = FakeBot()
@@ -275,9 +275,9 @@ async def test_group_weekly_empty_week(app: App, fake_api, monkeypatch):
     group_calls = [c for c in bot.calls if c[0] == "send_group_msg"]
     assert len(group_calls) == 1
     assert group_calls[0][1]["group_id"] == GROUP_ID
-    assert "本周无值班安排" in FakeBot.plain(group_calls[0][1])
+    assert "下周值班安排：无值班安排" in FakeBot.plain(group_calls[0][1])
     state = await get_db().get_task_state(TASK_GROUP_WEEKLY)
-    monday, _ = this_week_range(_today())
+    monday, _ = next_week_range(_today())
     assert state.status == "success" and state.business_key == monday.isoformat()
 
 
@@ -316,7 +316,7 @@ async def test_group_weekly_api_error(app: App, fake_api, monkeypatch):
     from nonebot_plugin_duty_bot import jobs
     from nonebot_plugin_duty_bot.api import DutyApiError
     from nonebot_plugin_duty_bot.storage import TASK_GROUP_WEEKLY, get_db
-    from nonebot_plugin_duty_bot.timeutil import this_week_range
+    from nonebot_plugin_duty_bot.timeutil import next_week_range
 
     async def boom(student_no=None):
         raise DutyApiError("接口返回 500")
@@ -326,7 +326,7 @@ async def test_group_weekly_api_error(app: App, fake_api, monkeypatch):
     monkeypatch.setattr(jobs, "try_get_bot", lambda: bot)
 
     await jobs._job_group_weekly()
-    monday, _ = this_week_range(_today())
+    monday, _ = next_week_range(_today())
     state = await get_db().get_task_state(TASK_GROUP_WEEKLY)
     assert state.status == "failed"
     assert state.business_key == monday.isoformat()
@@ -372,7 +372,8 @@ async def test_jobs_registered(app: App):
     assert job.next_run_time.weekday() == 6  # 周日（Python: 周一=0）
 
     job = scheduler.get_job(jobs.JOB_GROUP_WEEKLY)
-    assert job.next_run_time.weekday() == 0  # 周一
+    assert job.next_run_time.weekday() == 6  # 周日（Python: 周一=0）
+    assert job.next_run_time.hour == 21  # 21:00
 
     job = scheduler.get_job(jobs.JOB_TOMORROW)
     assert job.next_run_time.hour == 21
@@ -403,7 +404,7 @@ def test_config_cron_defaults_valid():
 
     config = Config()  # validate_default=True：默认值也经 from_crontab 校验
     assert config.dutybot_personal_weekly_cron == "0 19 * * sun"
-    assert config.dutybot_group_weekly_cron == "0 8 * * mon"
+    assert config.dutybot_group_weekly_cron == "0 21 * * sun"
     assert config.dutybot_tomorrow_cron == "0 21 * * *"
 
 

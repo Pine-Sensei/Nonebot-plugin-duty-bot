@@ -36,8 +36,8 @@ class Config(BaseModel):
     dutybot_personal_weekly_cron: str = Field(default="0 19 * * sun", validate_default=True)
     """个人每周排班预告 cron（默认周日 19:00，北京时间）"""
 
-    dutybot_group_weekly_cron: str = Field(default="0 8 * * mon", validate_default=True)
-    """群每周排班预告 cron（默认周一 08:00，北京时间）"""
+    dutybot_group_weekly_cron: str = Field(default="0 21 * * sun", validate_default=True)
+    """群每周排班预告 cron（默认周日 21:00，北京时间）"""
 
     dutybot_tomorrow_cron: str = Field(default="0 21 * * *", validate_default=True)
     """明日值班播报 cron（默认每日 21:00，北京时间）"""

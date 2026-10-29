@@ -82,7 +82,7 @@ def test_group_week_view_grouped_by_date() -> None:
         make_assignment(id="2", date="2026-10-27", slot_id="s2"),
         make_assignment(id="3", date=None, slot_id="s3"),  # 日期未定不参与分组
     ]
-    view = render.build_group_week_view("本周值班安排", assignments)
+    view = render.build_group_week_view("下周值班安排", assignments)
     assert [d.date_display for d in view.days] == ["10月27日（周二）", "10月28日（周三）"]
 
 
