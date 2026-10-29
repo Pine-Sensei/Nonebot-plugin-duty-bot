@@ -25,7 +25,7 @@ __plugin_meta__ = PluginMetadata(
         "dutybot_admins 等配置项"
     ),
     type="application",
-    homepage="https://github.com/duty-bot/nonebot-plugin-duty-bot",
+    homepage="https://github.com/Pine-Sensei/Nonebot-plugin-duty-bot",
     config=Config,
     supported_adapters={"~onebot.v11"},
 )
