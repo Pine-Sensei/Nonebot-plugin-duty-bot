@@ -261,6 +261,26 @@ async def test_group_weekly(app: App, fake_api, monkeypatch, patch_render):
     assert len(bot.calls) == 1
 
 
+async def test_group_weekly_empty_week(app: App, fake_api, monkeypatch):
+    """回归：本周无班次时纯文本播报并正确落库（曾漏传 category 致 TypeError、状态不落库）。"""
+    from nonebot_plugin_duty_bot import jobs
+    from nonebot_plugin_duty_bot.storage import TASK_GROUP_WEEKLY, get_db
+    from nonebot_plugin_duty_bot.timeutil import this_week_range
+
+    fake_api.roster.assignments = []
+    bot = FakeBot()
+    monkeypatch.setattr(jobs, "try_get_bot", lambda: bot)
+
+    await jobs._job_group_weekly()
+    group_calls = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert len(group_calls) == 1
+    assert group_calls[0][1]["group_id"] == GROUP_ID
+    assert "本周无值班安排" in FakeBot.plain(group_calls[0][1])
+    state = await get_db().get_task_state(TASK_GROUP_WEEKLY)
+    monday, _ = this_week_range(_today())
+    assert state.status == "success" and state.business_key == monday.isoformat()
+
+
 async def test_tomorrow_broadcast(app: App, fake_api, monkeypatch, patch_render):
     """明日播报：明日班次图片；无班次纯文本；幂等。"""
     from nonebot_plugin_duty_bot import jobs
