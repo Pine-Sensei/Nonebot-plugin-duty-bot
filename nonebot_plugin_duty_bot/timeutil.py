@@ -12,6 +12,8 @@ BEIJING = ZoneInfo("Asia/Shanghai")
 
 WEEKDAY_NAMES = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
+WEEKDAY_FULL_NAMES = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
+
 
 def now_beijing() -> datetime:
     """当前北京时间。"""

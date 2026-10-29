@@ -3,37 +3,48 @@
 <head>
 <meta charset="utf-8" />
 <style>
-body { margin: 0; padding: 20px; background: #eef1f7; font-family: "Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Zen Hei", "PingFang SC", sans-serif; }
-.card { background: #ffffff; border-radius: 12px; padding: 22px 26px; }
-.title { font-size: 20px; font-weight: bold; color: #24335a; }
-.day-title { font-size: 15px; font-weight: bold; color: #3d5aa8; margin-top: 16px; }
-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-th { background: #e8edf9; color: #46557e; font-size: 13px; padding: 9px 10px; text-align: left; border-radius: 4px; }
-td { font-size: 13px; color: #333a4d; padding: 9px 10px; border-bottom: 1px solid #edf0f6; }
-tr.odd td { background: #f9fafe; }
-.empty { font-size: 14px; color: #8a93a8; text-align: center; padding: 18px 0; }
+html { font-size: {{ root_font_size | default(16) }}px; }
+body { margin: 0; padding: 1.25rem; background: #eef1f7; font-family: "Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Zen Hei", "PingFang SC", sans-serif; }
+.card { background: #ffffff; border-radius: 0.75rem; padding: 1.375rem 1.625rem; }
+.title { font-size: 1.25rem; font-weight: bold; color: #24335a; }
+.subtitle { font-size: 0.875rem; color: #6b7690; margin-top: 0.25rem; }
+table { width: 100%; border-collapse: collapse; margin-top: 0.875rem; }
+th { background: #e8edf9; color: #46557e; font-size: 0.8125rem; padding: 0.5625rem 0.5rem; text-align: center; border: 0.0625rem solid #edf0f6; }
+td { font-size: 0.8125rem; color: #333a4d; padding: 0.5625rem 0.5rem; text-align: center; border: 0.0625rem solid #edf0f6; }
+td.empty { color: #8a93a8; }
+.post { font-weight: bold; color: #24335a; }
+.duty { margin-top: 0.125rem; }
+.empty-tip { font-size: 0.875rem; color: #8a93a8; text-align: center; padding: 1.125rem 0; }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="title">{{ view.title }}</div>
-  {% if view.days %}
-    {% for section in view.days %}
-    <div class="day-title">{{ section.date_display }}</div>
-    <table>
-      <tr><th>时间</th><th>岗位</th><th>主值</th><th>备值</th></tr>
-      {% for row in section.rows %}
-      <tr class="{{ loop.cycle('odd', 'even') }}">
-        <td>{{ row.time_range }}</td>
-        <td>{{ row.post_name }}</td>
-        <td>{{ row.primary }}</td>
-        <td>{{ row.backup }}</td>
-      </tr>
+  <div class="subtitle">{{ view.date_range }}</div>
+  {% if view.slot_times %}
+  <table>
+    <tr>
+      <th>时段</th>
+      {% for h in view.headers %}<th>{{ h.weekday }}<br />{{ h.date_display }}</th>{% endfor %}
+    </tr>
+    {% for time in view.slot_times %}
+    {% set row_cells = view.cells[loop.index0] %}
+    <tr>
+      <th>{{ time }}</th>
+      {% for cell in row_cells %}
+        {% if cell %}
+        <td>
+          {% for row in cell %}<div class="post">{{ row.post_name }}</div><div class="duty">主班：{{ row.primary }}</div><div class="duty">备班：{{ row.backup }}</div>{% endfor %}
+        </td>
+        {% else %}
+        <td class="empty">—</td>
+        {% endif %}
       {% endfor %}
-    </table>
+    </tr>
     {% endfor %}
+  </table>
   {% else %}
-  <div class="empty">无值班安排</div>
+  <div class="empty-tip">无值班安排</div>
   {% endif %}
 </div>
 </body>

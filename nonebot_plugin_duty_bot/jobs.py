@@ -123,7 +123,7 @@ async def broadcast_group_day(bot: Bot, day: date, *, title: str) -> SendResult:
 
 
 async def broadcast_group_week(bot: Bot, monday: date, *, title: str) -> SendResult:
-    """按指定周（周一起 7 天）向配置群播报按日期分组的名单（图片，降级纯文本）。"""
+    """按指定周（周一起 7 天）向配置群播报周网格看板（图片，降级纯文本）。"""
     if not plugin_config.dutybot_group_id:
         return SendResult(False, "未配置值班群号")
     roster = await get_client().get_roster()
@@ -136,7 +136,7 @@ async def broadcast_group_week(bot: Bot, monday: date, *, title: str) -> SendRes
             f"{title}：无值班安排",
             CAT_BROADCAST,
         )
-    view = build_group_week_view(title, assignments)
+    view = build_group_week_view(title, monday, assignments)
     return await deliver_view(
         bot,
         CHAT_GROUP,
@@ -282,7 +282,7 @@ async def _job_personal_weekly() -> None:
 
 
 async def _job_group_weekly() -> None:
-    """群每周排班预告：下周（周一~周日）名单按日期分组播报（图片）。"""
+    """群每周排班预告：下周（周一~周日）名单按周网格看板播报（图片）。"""
     db = get_db()
     now = now_beijing()
     monday, _ = next_week_range(now.date())

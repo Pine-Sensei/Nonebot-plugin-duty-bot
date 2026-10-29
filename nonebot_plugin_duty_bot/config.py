@@ -36,11 +36,11 @@ class Config(BaseModel):
     dutybot_personal_weekly_cron: str = Field(default="0 19 * * sun", validate_default=True)
     """个人每周排班预告 cron（默认周日 19:00，北京时间）"""
 
-    dutybot_group_weekly_cron: str = Field(default="0 21 * * sun", validate_default=True)
-    """群每周排班预告 cron（默认周日 21:00，北京时间）"""
+    dutybot_group_weekly_cron: str = Field(default="0 22 * * sun", validate_default=True)
+    """群每周排班预告 cron（默认周日 22:00，北京时间）"""
 
-    dutybot_tomorrow_cron: str = Field(default="0 21 * * *", validate_default=True)
-    """明日值班播报 cron（默认每日 21:00，北京时间）"""
+    dutybot_tomorrow_cron: str = Field(default="0 22 * * *", validate_default=True)
+    """明日值班播报 cron（默认每日 22:00，北京时间）"""
 
     dutybot_rate_private_per_min: int = 20
     """私聊发送限流：每分钟最多发送条数"""
@@ -57,6 +57,9 @@ class Config(BaseModel):
     dutybot_api_timeout: float = 10.0
     """值班系统接口调用超时（秒）"""
 
+    dutybot_render_scale: float = 2.0
+    """渲染图片缩放倍率：1.0 为原始清晰度，2.0 即 2 倍分辨率（文件相应变大）"""
+
     @field_validator("dutybot_remind_interval")
     @classmethod
     def _check_interval(cls, v: int) -> int:
@@ -70,6 +73,13 @@ class Config(BaseModel):
         if v >= 1:
             return v
         raise ValueError("dutybot_remind_window 必须为正整数（分钟）")
+
+    @field_validator("dutybot_render_scale")
+    @classmethod
+    def _check_render_scale(cls, v: float) -> float:
+        if 1 <= v <= 4:
+            return v
+        raise ValueError("dutybot_render_scale 必须在 1.0 ~ 4.0 之间")
 
     @field_validator(
         "dutybot_personal_weekly_cron",

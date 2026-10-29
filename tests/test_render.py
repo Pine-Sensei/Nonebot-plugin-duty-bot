@@ -75,15 +75,41 @@ def test_group_day_aggregation() -> None:
     assert view.rows[0].backup == "—"
 
 
-def test_group_week_view_grouped_by_date() -> None:
+def test_group_week_view_builds_week_grid() -> None:
+    """周网格：固定 7 列（周一~周日），行=去重升序时段，格子=当日班次聚合；日期未定不参与。"""
     render = _render_mod()
+    monday = date(2026, 11, 2)
     assignments = [
-        make_assignment(id="1", date="2026-10-28", slot_id="s1"),
-        make_assignment(id="2", date="2026-10-27", slot_id="s2"),
-        make_assignment(id="3", date=None, slot_id="s3"),  # 日期未定不参与分组
+        make_assignment(id="1", date="2026-11-02", slot_id="s1"),
+        make_assignment(
+            id="2", date="2026-11-02", slot_id="s2",
+            start_time="14:00", end_time="16:00", name="李四", role="backup",
+        ),
+        make_assignment(
+            id="3", date="2026-11-03", slot_id="s2",
+            start_time="14:00", end_time="16:00", post_name="西门岗", name="王五", role="primary",
+        ),
+        make_assignment(id="4", date=None, slot_id="s3"),  # 日期未定不参与
     ]
-    view = render.build_group_week_view("下周值班安排", assignments)
-    assert [d.date_display for d in view.days] == ["10月27日（周二）", "10月28日（周三）"]
+    view = render.build_group_week_view("下周值班安排", monday, assignments)
+    assert [h.weekday for h in view.headers] == [
+        "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日",
+    ]
+    assert view.headers[0].date_display == "11-02"
+    assert view.headers[6].date_display == "11-08"
+    assert view.date_range == "11月2日 - 11月8日"
+    assert view.slot_times == ["08:00-10:00", "14:00-16:00"]
+    assert view.cells[0][0][0].post_name == "东门岗"  # 周一早班
+    assert view.cells[1][0][0].primary == "—"  # 周一午班缺主班
+    assert view.cells[1][0][0].backup == "李四"
+    assert view.cells[1][1][0].primary == "王五"  # 周二午班
+    assert not view.cells[0][1]  # 周二无早班
+
+    chunks = render.group_week_text_chunks(view)
+    assert "【下周值班安排】11月2日 - 11月8日" in chunks[0]
+    assert "—— 星期一 11-02 ——" in chunks[0]
+    assert "主班: 王五" in chunks[0]
+    assert "备班: 李四" in chunks[0]
 
 
 def test_filter_by_dates_and_student() -> None:
@@ -146,6 +172,30 @@ async def test_render_template_disables_external_resources(monkeypatch) -> None:
     assert data == b"PNG-BYTES"
     assert captured["img_fetch_fn"] is render._deny_fetch
     assert captured["css_fetch_fn"] is render._deny_fetch
+
+
+async def test_render_template_scales_with_config(monkeypatch) -> None:
+    """根字号与画布宽度随 dutybot_render_scale 等比放大。"""
+    render = _render_mod()
+    captured = {}
+
+    async def fake_html_to_pic(html: str, **kwargs) -> bytes:
+        captured["html"] = html
+        captured.update(kwargs)
+        return b"PNG-BYTES"
+
+    monkeypatch.setattr(render, "html_to_pic", fake_html_to_pic)
+    view = render.build_personal_view("我的排班", "张三", [make_assignment()])
+
+    monkeypatch.setattr(render.plugin_config, "dutybot_render_scale", 2.0)
+    await render.render_template("personal.html.j2", view)
+    assert captured["max_width"] == 1600
+    assert "font-size: 32.0px" in captured["html"]
+
+    monkeypatch.setattr(render.plugin_config, "dutybot_render_scale", 1.0)
+    await render.render_template("personal.html.j2", view)
+    assert captured["max_width"] == 800
+    assert "font-size: 16.0px" in captured["html"]
 
 
 async def test_deliver_view_falls_back_to_text_on_render_error(monkeypatch) -> None:

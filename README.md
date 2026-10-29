@@ -44,13 +44,14 @@ plugins = ["nonebot_plugin_duty_bot"]
 | `dutybot_remind_interval` | int | `30` | 值班提醒轮询间隔（分钟） |
 | `dutybot_remind_window` | int | `120` | 值班提醒窗口：班次开始前多少分钟内提醒 |
 | `dutybot_personal_weekly_cron` | str | `"0 19 * * sun"` | 个人每周排班预告 cron（北京时间） |
-| `dutybot_group_weekly_cron` | str | `"0 21 * * sun"` | 群每周排班预告 cron（北京时间） |
-| `dutybot_tomorrow_cron` | str | `"0 21 * * *"` | 明日值班播报 cron（北京时间） |
+| `dutybot_group_weekly_cron` | str | `"0 22 * * sun"` | 群每周排班预告 cron（北京时间） |
+| `dutybot_tomorrow_cron` | str | `"0 22 * * *"` | 明日值班播报 cron（北京时间） |
 | `dutybot_rate_private_per_min` | int | `20` | 私聊发送限流（条/分钟） |
 | `dutybot_rate_group_per_min` | int | `10` | 群聊发送限流（条/分钟） |
 | `dutybot_queue_max_size` | int | `200` | 发送队列积压上限，超过后丢弃最早的播报/预告类消息 |
 | `dutybot_roster_cache_seconds` | int | `60` | 整体排班查询短时缓存时长（秒） |
 | `dutybot_api_timeout` | float | `10.0` | 值班系统接口调用超时（秒） |
+| `dutybot_render_scale` | float | `2.0` | 渲染图片缩放倍率（1.0 为原始清晰度，越大越清晰、文件越大，上限 4.0） |
 
 示例：
 
@@ -98,8 +99,8 @@ dutybot_admins=[10000]
 
 - **值班前提醒**：每 `dutybot_remind_interval` 分钟轮询，班次开始前 `dutybot_remind_window` 分钟内私聊提醒，逐班次去重（重启后窗口内允许重复一次）
 - **个人每周排班预告**：`dutybot_personal_weekly_cron`（默认周日 19:00），私聊推送下周排班图片
-- **群每周排班预告**：`dutybot_group_weekly_cron`（默认周日 21:00），下周排班按日期分组图片播报
-- **明日值班播报**：`dutybot_tomorrow_cron`（默认每日 21:00），明日值班图片播报
+- **群每周排班预告**：`dutybot_group_weekly_cron`（默认周日 22:00），下周排班按周网格看板（星期×时段）图片播报
+- **明日值班播报**：`dutybot_tomorrow_cron`（默认每日 22:00），明日值班图片播报
 
 ## 部署注意事项
 

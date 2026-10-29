@@ -20,11 +20,15 @@ require("nonebot_plugin_htmlkit")
 from nonebot_plugin_htmlkit import html_to_pic  # noqa: E402
 
 from .api import Assignment, Roster
+from .config import plugin_config
 from .sender import CAT_COMMAND, SendResult, get_queue
-from .timeutil import format_date_cn, weekday_name
+from .timeutil import WEEKDAY_FULL_NAMES, format_date_cn, weekday_name
 
 _ROLE_CN = {"primary": "主值", "backup": "备值"}
 _MAX_CHUNK_CHARS = 900
+# 缩放基准：scale=1 时根字号（px）与渲染画布最大宽度（px）
+_SCALE_BASE_ROOT_FONT = 16.0
+_SCALE_BASE_MAX_WIDTH = 800.0
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _env = Environment(
@@ -70,9 +74,9 @@ class SlotRow:
 
 
 @dataclass
-class DaySection:
+class WeekDayHeader:
+    weekday: str
     date_display: str
-    rows: list[SlotRow] = field(default_factory=list)
 
 
 @dataclass
@@ -85,7 +89,10 @@ class GroupDayView:
 @dataclass
 class GroupWeekView:
     title: str
-    days: list[DaySection] = field(default_factory=list)
+    date_range: str
+    headers: list[WeekDayHeader]
+    slot_times: list[str]
+    cells: list[list[list[SlotRow]]]
 
 
 # ---------- 视图构建 ----------
@@ -165,20 +172,39 @@ def build_group_day_view(
 
 
 def build_group_week_view(
-    title: str, assignments: Sequence[Assignment]
+    title: str, monday: date, assignments: Sequence[Assignment]
 ) -> GroupWeekView:
-    by_date: dict[str, list[Assignment]] = {}
-    for a in assignments:
-        if a.date:
-            by_date.setdefault(a.date, []).append(a)
-    view = GroupWeekView(title=title)
-    for iso_date in sorted(by_date):
-        rows = _aggregate_slots(by_date[iso_date])
-        if rows:
-            view.days.append(
-                DaySection(date_display=format_date_cn(date.fromisoformat(iso_date)), rows=rows)
-            )
-    return view
+    """构建周网格视图：列=周一~周日（固定 7 天），行=去重升序时段，格子=当日班次聚合。"""
+    week_dates = [monday + timedelta(days=i) for i in range(7)]
+    headers = [
+        WeekDayHeader(
+            weekday=WEEKDAY_FULL_NAMES[i],
+            date_display=f"{d.month:02d}-{d.day:02d}",
+        )
+        for i, d in enumerate(week_dates)
+    ]
+    day_rows = [
+        _aggregate_slots([a for a in assignments if a.date == d.isoformat()])
+        for d in week_dates
+    ]
+    starts: dict[str, str] = {}
+    for rows in day_rows:
+        for r in rows:
+            starts.setdefault(r.time_range, r.time_range.split("-")[0])
+    slot_times = sorted(starts, key=starts.get)
+    index = {t: i for i, t in enumerate(slot_times)}
+    cells: list[list[list[SlotRow]]] = [[[] for _ in range(7)] for _ in slot_times]
+    for day_idx, rows in enumerate(day_rows):
+        for r in rows:
+            cells[index[r.time_range]][day_idx].append(r)
+    sunday = week_dates[-1]
+    return GroupWeekView(
+        title=title,
+        date_range=f"{monday.month}月{monday.day}日 - {sunday.month}月{sunday.day}日",
+        headers=headers,
+        slot_times=slot_times,
+        cells=cells,
+    )
 
 
 # ---------- 排班筛选 ----------
@@ -204,10 +230,18 @@ def filter_by_dates(
 
 
 async def render_template(template_name: str, view) -> bytes:
-    """渲染视图为 PNG 图片字节。渲染失败抛异常，由调用方降级。"""
-    html = _env.get_template(template_name).render(view=view)
+    """渲染视图为 PNG 图片字节。渲染失败抛异常，由调用方降级。
+
+    模板尺寸均以 rem 定义，根字号随 dutybot_render_scale 等比放大，
+    画布最大宽度同步放大，从而输出更高分辨率的图片。
+    """
+    scale = plugin_config.dutybot_render_scale
+    html = _env.get_template(template_name).render(
+        view=view, root_font_size=_SCALE_BASE_ROOT_FONT * scale
+    )
     return await html_to_pic(
         html,
+        max_width=_SCALE_BASE_MAX_WIDTH * scale,
         img_fetch_fn=_deny_fetch,
         css_fetch_fn=_deny_fetch,
     )
@@ -247,6 +281,10 @@ def _slot_row_text(row: SlotRow) -> str:
     return f"· {row.time_range} | {row.post_name} | 主值: {row.primary} | 备值: {row.backup}"
 
 
+def _week_row_text(row: SlotRow) -> str:
+    return f"· {row.time_range} | {row.post_name} | 主班: {row.primary} | 备班: {row.backup}"
+
+
 def group_day_text_chunks(view: GroupDayView) -> list[str]:
     lines = [f"【{view.title}】{view.date_display}"]
     lines.extend(_slot_row_text(row) for row in view.rows)
@@ -256,11 +294,16 @@ def group_day_text_chunks(view: GroupDayView) -> list[str]:
 
 
 def group_week_text_chunks(view: GroupWeekView) -> list[str]:
-    lines = [f"【{view.title}】"]
-    for section in view.days:
-        lines.append(f"—— {section.date_display} ——")
-        lines.extend(_slot_row_text(row) for row in section.rows)
-    if not view.days:
+    lines = [f"【{view.title}】{view.date_range}"]
+    has_any = False
+    for day_idx, header in enumerate(view.headers):
+        rows = [r for col in view.cells for r in col[day_idx]]
+        if not rows:
+            continue
+        has_any = True
+        lines.append(f"—— {header.weekday} {header.date_display} ——")
+        lines.extend(_week_row_text(r) for r in rows)
+    if not has_any:
         lines.append("无值班安排")
     return _chunk_lines(lines)
 
