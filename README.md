@@ -43,8 +43,8 @@ plugins = ["nonebot_plugin_duty_bot"]
 | `dutybot_admins` | set[int] | 空集合 | 管理员 QQ 白名单，如 `[10000, 10001]` |
 | `dutybot_remind_interval` | int | `30` | 值班提醒轮询间隔（分钟） |
 | `dutybot_remind_window` | int | `120` | 值班提醒窗口：班次开始前多少分钟内提醒 |
-| `dutybot_personal_weekly_cron` | str | `"0 19 * * sun"` | 个人每周排班预告 cron（北京时间） |
-| `dutybot_group_weekly_cron` | str | `"0 22 * * sun"` | 群每周排班预告 cron（北京时间） |
+| `dutybot_personal_weekly_cron` | str | `"0 22 * * fri"` | 个人每周排班预告 cron（北京时间） |
+| `dutybot_group_weekly_cron` | str | `"0 22 * * fri"` | 群每周排班预告 cron（北京时间） |
 | `dutybot_tomorrow_cron` | str | `"0 22 * * *"` | 明日值班播报 cron（北京时间） |
 | `dutybot_rate_private_per_min` | int | `20` | 私聊发送限流（条/分钟） |
 | `dutybot_rate_group_per_min` | int | `10` | 群聊发送限流（条/分钟） |
@@ -98,9 +98,9 @@ dutybot_admins=[10000]
 均按北京时间执行，不并发，异常记录后不中断调度：
 
 - **值班前提醒**：每 `dutybot_remind_interval` 分钟轮询，班次开始前 `dutybot_remind_window` 分钟内私聊提醒，逐班次去重（重启后窗口内允许重复一次）
-- **个人每周排班预告**：`dutybot_personal_weekly_cron`（默认周日 19:00），私聊推送下周排班图片
-- **群每周排班预告**：`dutybot_group_weekly_cron`（默认周日 22:00），下周排班按周网格看板（星期×时段）图片播报
-- **明日值班播报**：`dutybot_tomorrow_cron`（默认每日 22:00），明日值班图片播报
+- **个人每周排班预告**：`dutybot_personal_weekly_cron`（默认周五 22:00），私聊推送下周排班图片
+- **群每周排班预告**：`dutybot_group_weekly_cron`（默认周五 22:00），下周排班按周网格看板（星期×时段）图片播报
+- **明日值班播报**：`dutybot_tomorrow_cron`（默认每日 22:00），明日有排班才播报图片，无排班跳过不发送
 
 ## 部署注意事项
 

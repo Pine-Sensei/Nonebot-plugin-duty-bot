@@ -29,8 +29,7 @@ def _today_text(assignments) -> str:
     """今日班次纯文本。"""
     lines = []
     for a in sorted(assignments, key=lambda x: (x.start_time, x.end_time)):
-        role = "主值" if a.role == "primary" else "备值"
-        lines.append(f"· {a.start_time}-{a.end_time} {a.post_name}（{role}）")
+        lines.append(f"· {a.start_time}-{a.end_time} {a.post_name}")
     return "\n".join(lines)
 
 

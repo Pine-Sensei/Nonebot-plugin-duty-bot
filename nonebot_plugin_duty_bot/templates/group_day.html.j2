@@ -21,13 +21,12 @@ tr.odd td { background: #f9fafe; }
   <div class="subtitle">{{ view.date_display }}</div>
   {% if view.rows %}
   <table>
-    <tr><th>时间</th><th>岗位</th><th>主值</th><th>备值</th></tr>
+    <tr><th>时间</th><th>岗位</th><th>值班人</th></tr>
     {% for row in view.rows %}
     <tr class="{{ loop.cycle('odd', 'even') }}">
       <td>{{ row.time_range }}</td>
       <td>{{ row.post_name }}</td>
       <td>{{ row.primary }}</td>
-      <td>{{ row.backup }}</td>
     </tr>
     {% endfor %}
   </table>

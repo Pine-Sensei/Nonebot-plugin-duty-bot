@@ -21,13 +21,12 @@ tr.odd td { background: #f9fafe; }
   {% if view.subtitle %}<div class="subtitle">{{ view.subtitle }}</div>{% endif %}
   {% if view.rows %}
   <table>
-    <tr><th>日期</th><th>时间</th><th>岗位</th><th>角色</th><th>周期</th><th>周次</th></tr>
+    <tr><th>日期</th><th>时间</th><th>岗位</th><th>周期</th><th>周次</th></tr>
     {% for row in view.rows %}
     <tr class="{{ loop.cycle('odd', 'even') }}">
       <td>{{ row.date_display }}</td>
       <td>{{ row.time_range }}</td>
       <td>{{ row.post_name }}</td>
-      <td>{{ row.role }}</td>
       <td>{{ row.cycle_name }}</td>
       <td>第{{ row.week_no }}周 · {{ row.weekday }}</td>
     </tr>

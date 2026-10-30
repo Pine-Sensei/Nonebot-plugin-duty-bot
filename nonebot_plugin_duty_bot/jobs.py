@@ -96,13 +96,22 @@ def try_get_bot() -> Bot | None:
 # ---------- 群播报核心（供定时任务与「重播」共用） ----------
 
 
-async def broadcast_group_day(bot: Bot, day: date, *, title: str) -> SendResult:
-    """按指定日期向配置群播报班次聚合名单（图片，降级纯文本）。"""
+async def broadcast_group_day(
+    bot: Bot, day: date, *, title: str, announce_empty: bool = True
+) -> SendResult:
+    """按指定日期向配置群播报班次聚合名单（图片，降级纯文本）。
+
+    announce_empty=False（定时播报）时无排班不发送任何消息，直接视为成功；
+    默认 True（「重播」）时无排班仍发送文本提示，便于管理员确认结果。
+    """
     if not plugin_config.dutybot_group_id:
         return SendResult(False, "未配置值班群号")
     roster = await get_client().get_roster()
     assignments = filter_by_dates(roster, day, day)
     if not assignments:
+        if not announce_empty:
+            logger.info(f"{title}：{format_date_cn(day)} 无值班安排，跳过播报")
+            return SendResult(True)
         return await get_queue().enqueue(
             bot,
             CHAT_GROUP,
@@ -198,7 +207,7 @@ async def _job_remind_poll() -> None:
         text = (
             f"【值班提醒】你有一班值班即将开始\n"
             f"{format_date_cn(date.fromisoformat(a.date))} {a.start_time}-{a.end_time}\n"
-            f"岗位：{a.post_name}（{'主值' if a.role == 'primary' else '备值'}）\n"
+            f"岗位：{a.post_name}\n"
             f"请提前做好准备，准时到岗。"
         )
         _reminded.add(a.id)  # 先标记防止轮询重入；发送失败回滚以便下轮重试
@@ -332,7 +341,9 @@ async def _job_tomorrow() -> None:
         await db.set_task_state(TASK_TOMORROW, "failed", key, "无可用机器人连接")
         return
     try:
-        result = await broadcast_group_day(bot, tomorrow, title="明日值班安排")
+        result = await broadcast_group_day(
+            bot, tomorrow, title="明日值班安排", announce_empty=False
+        )
     except DutyApiError as e:
         logger.warning(f"明日播报本期（{key}）接口异常: {e.message}")
         await db.set_task_state(TASK_TOMORROW, "failed", key, e.message)

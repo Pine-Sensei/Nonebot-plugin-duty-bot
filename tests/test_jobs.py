@@ -282,7 +282,7 @@ async def test_group_weekly_empty_week(app: App, fake_api, monkeypatch):
 
 
 async def test_tomorrow_broadcast(app: App, fake_api, monkeypatch, patch_render):
-    """明日播报：明日班次图片；无班次纯文本；幂等。"""
+    """明日播报：明日班次图片；无班次不发送；幂等。"""
     from nonebot_plugin_duty_bot import jobs
     from nonebot_plugin_duty_bot.storage import TASK_TOMORROW, get_db
     from nonebot_plugin_duty_bot.timeutil import now_beijing
@@ -302,13 +302,30 @@ async def test_tomorrow_broadcast(app: App, fake_api, monkeypatch, patch_render)
     await jobs._job_tomorrow()  # 幂等
     assert len(bot.calls) == 1
 
-    # 无班次日：纯文本播报（模拟下一期）
+    # 无班次日：跳过播报，不发送任何消息（模拟下一期）
     fake_api.roster.assignments = []
     await get_db().set_task_state(TASK_TOMORROW, "failed", "2020-01-01", "x")
     await jobs._job_tomorrow()
     group_calls = [c for c in bot.calls if c[0] == "send_group_msg"]
-    assert len(group_calls) == 2
-    assert "无值班安排" in FakeBot.plain(group_calls[1][1])
+    assert len(group_calls) == 1  # 仍只有上一期的图片
+    state = await get_db().get_task_state(TASK_TOMORROW)
+    assert state.status == "success" and state.business_key == tomorrow.isoformat()
+
+
+async def test_broadcast_group_day_empty_announces_text(app: App, fake_api, monkeypatch):
+    """「重播 明日」路径（broadcast_group_day 默认）：无排班仍发文本提示，便于确认结果。"""
+    from nonebot_plugin_duty_bot import jobs
+    from nonebot_plugin_duty_bot.timeutil import now_beijing
+
+    bot = FakeBot()
+    monkeypatch.setattr(jobs, "try_get_bot", lambda: bot)
+
+    tomorrow = now_beijing().date() + timedelta(days=1)
+    result = await jobs.broadcast_group_day(bot, tomorrow, title="明日值班安排")
+    assert result.ok
+    group_calls = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert len(group_calls) == 1
+    assert "无值班安排" in FakeBot.plain(group_calls[0][1])
 
 
 async def test_group_weekly_api_error(app: App, fake_api, monkeypatch):
@@ -358,7 +375,7 @@ async def test_tomorrow_api_error(app: App, fake_api, monkeypatch):
 
 
 async def test_jobs_registered(app: App):
-    """定时任务已按北京时间注册；个人每周预告下次执行在周日。"""
+    """定时任务已按北京时间注册；两个每周预告下次执行均在周五 22:00。"""
     import nonebot_plugin_apscheduler
     from nonebot_plugin_duty_bot import jobs
 
@@ -369,10 +386,11 @@ async def test_jobs_registered(app: App):
 
     job = scheduler.get_job(jobs.JOB_PERSONAL_WEEKLY)
     assert job.next_run_time is not None
-    assert job.next_run_time.weekday() == 6  # 周日（Python: 周一=0）
+    assert job.next_run_time.weekday() == 4  # 周五（Python: 周一=0）
+    assert job.next_run_time.hour == 22  # 22:00
 
     job = scheduler.get_job(jobs.JOB_GROUP_WEEKLY)
-    assert job.next_run_time.weekday() == 6  # 周日（Python: 周一=0）
+    assert job.next_run_time.weekday() == 4  # 周五（Python: 周一=0）
     assert job.next_run_time.hour == 22  # 22:00
 
     job = scheduler.get_job(jobs.JOB_TOMORROW)
@@ -403,8 +421,8 @@ def test_config_cron_defaults_valid():
     from nonebot_plugin_duty_bot.config import Config
 
     config = Config()  # validate_default=True：默认值也经 from_crontab 校验
-    assert config.dutybot_personal_weekly_cron == "0 19 * * sun"
-    assert config.dutybot_group_weekly_cron == "0 22 * * sun"
+    assert config.dutybot_personal_weekly_cron == "0 22 * * fri"
+    assert config.dutybot_group_weekly_cron == "0 22 * * fri"
     assert config.dutybot_tomorrow_cron == "0 22 * * *"
 
 

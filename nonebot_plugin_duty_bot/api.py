@@ -40,7 +40,6 @@ def _validate_date(value: Optional[str]) -> Optional[str]:
 
 class Teammate(BaseModel):
     name: str
-    role: Literal["primary", "backup"]
 
 
 class Assignment(BaseModel):
@@ -214,6 +213,10 @@ class DutyApiClient:
             # 响应与契约不符：详情仅记日志，对外归一化为 DutyApiError
             logger.warning(f"值班系统接口响应格式异常: {e}")
             raise DutyApiError("接口响应格式异常") from e
+
+        # 备班制度已取消：接口仍按旧契约返回 role 字段，备班记录在此统一丢弃，
+        # 下游（展示/聚合/提醒）不再感知备班概念
+        roster.assignments = [a for a in roster.assignments if a.role != "backup"]
 
         # 仅整体查询（无 student_no）进入短时缓存
         if student_no is None and self._cache_seconds > 0:

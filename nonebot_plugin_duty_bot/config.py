@@ -33,11 +33,11 @@ class Config(BaseModel):
     dutybot_remind_window: int = 120
     """值班提醒窗口：班次开始前多少分钟内提醒"""
 
-    dutybot_personal_weekly_cron: str = Field(default="0 19 * * sun", validate_default=True)
-    """个人每周排班预告 cron（默认周日 19:00，北京时间）"""
+    dutybot_personal_weekly_cron: str = Field(default="0 22 * * fri", validate_default=True)
+    """个人每周排班预告 cron（默认周五 22:00，北京时间）"""
 
-    dutybot_group_weekly_cron: str = Field(default="0 22 * * sun", validate_default=True)
-    """群每周排班预告 cron（默认周日 22:00，北京时间）"""
+    dutybot_group_weekly_cron: str = Field(default="0 22 * * fri", validate_default=True)
+    """群每周排班预告 cron（默认周五 22:00，北京时间）"""
 
     dutybot_tomorrow_cron: str = Field(default="0 22 * * *", validate_default=True)
     """明日值班播报 cron（默认每日 22:00，北京时间）"""

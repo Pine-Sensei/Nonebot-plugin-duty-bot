@@ -38,7 +38,7 @@ async def test_my_roster_image(app: App, fake_api, monkeypatch, make_events):
     await get_db().bind(USER_QQ, "2025123456789", "张三")
     fake_api.roster.assignments = [
         make_assignment(),
-        make_assignment(id="a-2", slot_id="s2", start_time="14:00", role="backup", post_name="西门岗"),
+        make_assignment(id="a-2", slot_id="s2", start_time="14:00", post_name="西门岗"),
     ]
 
     async def fake_render(template_name, view):
@@ -94,12 +94,12 @@ async def test_today_private_bound(app: App, fake_api, make_events):
     await get_db().bind(USER_QQ, "2025123456789", "张三")
     fake_api.today_roster.assignments = [
         make_assignment(start_time="08:00", end_time="10:00", post_name="东门岗"),
-        make_assignment(id="a-2", slot_id="s2", start_time="14:00", end_time="16:00", role="backup", post_name="西门岗"),
+        make_assignment(id="a-2", slot_id="s2", start_time="14:00", end_time="16:00", post_name="西门岗"),
     ]
     make_private, _ = make_events
     from nonebot_plugin_duty_bot.handlers.query import today_cmd
 
-    text = "【今日值班】\n· 08:00-10:00 东门岗（主值）\n· 14:00-16:00 西门岗（备值）"
+    text = "【今日值班】\n· 08:00-10:00 东门岗\n· 14:00-16:00 西门岗"
     await run_matcher(
         app, today_cmd, make_private(USER_QQ, "/今日值班"),
         [("send_private_msg", {"user_id": USER_QQ, "message": ob(text)})],
@@ -128,9 +128,9 @@ async def test_today_group_image(app: App, fake_api, monkeypatch, make_events):
     from nonebot.adapters.onebot.v11 import MessageSegment
 
     fake_api.today_roster.assignments = [
-        make_assignment(slot_id="s1", start_time="08:00", post_name="东门岗", name="张三", role="primary"),
-        make_assignment(id="a-2", slot_id="s1", start_time="08:00", post_name="东门岗", name="李四", role="backup"),
-        make_assignment(id="a-3", slot_id="s2", start_time="14:00", post_name="西门岗", name="王五", role="primary"),
+        make_assignment(slot_id="s1", start_time="08:00", post_name="东门岗", name="张三"),
+        make_assignment(id="a-2", slot_id="s1", start_time="08:00", post_name="东门岗", name="李四"),
+        make_assignment(id="a-3", slot_id="s2", start_time="14:00", post_name="西门岗", name="王五"),
     ]
 
     async def fake_render(template_name, view):

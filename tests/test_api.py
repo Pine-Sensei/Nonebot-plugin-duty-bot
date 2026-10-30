@@ -84,6 +84,26 @@ async def test_get_roster_success() -> None:
     await client.close()
 
 
+async def test_backup_assignments_filtered() -> None:
+    """接口仍按旧契约返回备班记录时，解析后统一丢弃，下游不感知备班。"""
+    api = _client_mod()
+    data = {
+        **ROSTER_DATA,
+        "assignments": [
+            {**ROSTER_DATA["assignments"][0]},
+            {**ROSTER_DATA["assignments"][0], "id": "a-2", "name": "李四", "role": "backup"},
+        ],
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_envelope(data))
+
+    client = api.DutyApiClient("http://test", "key-1", transport=make_transport(handler))
+    roster = await client.get_roster()
+    assert [a.id for a in roster.assignments] == ["a-1"]
+    await client.close()
+
+
 async def test_error_envelope() -> None:
     api = _client_mod()
 
@@ -339,26 +359,22 @@ async def test_invalid_time_format() -> None:
 
 
 async def test_invalid_role() -> None:
-    """role 不在契约枚举（primary/backup）内时拒绝。"""
+    """Assignment.role 不在契约枚举（primary/backup）内时拒绝。"""
     api = _client_mod()
     base_assignment = ROSTER_DATA["assignments"][0]
-    bad_assignments = [
-        {**base_assignment, "role": "xxx"},  # Assignment.role 非法
-        {**base_assignment, "teammates": [{"name": "王五", "role": "xxx"}]},  # Teammate.role 非法
-    ]
 
-    for bad_assignment in bad_assignments:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_envelope(
+                {**ROSTER_DATA, "assignments": [{**base_assignment, "role": "xxx"}]}
+            ),
+        )
 
-        async def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                json=_envelope({**ROSTER_DATA, "assignments": [bad_assignment]}),
-            )
-
-        client = api.DutyApiClient("http://test", "k", transport=make_transport(handler))
-        with pytest.raises(api.DutyApiError):
-            await client.get_roster()
-        await client.close()
+    client = api.DutyApiClient("http://test", "k", transport=make_transport(handler))
+    with pytest.raises(api.DutyApiError):
+        await client.get_roster()
+    await client.close()
 
 
 async def test_empty_student_no_normalized() -> None:

@@ -24,11 +24,12 @@ from .config import plugin_config
 from .sender import CAT_COMMAND, SendResult, get_queue
 from .timeutil import WEEKDAY_FULL_NAMES, format_date_cn, weekday_name
 
-_ROLE_CN = {"primary": "主值", "backup": "备值"}
 _MAX_CHUNK_CHARS = 900
 # 缩放基准：scale=1 时根字号（px）与渲染画布最大宽度（px）
 _SCALE_BASE_ROOT_FONT = 16.0
 _SCALE_BASE_MAX_WIDTH = 800.0
+# 周网格含 8 列，基准画布单独加宽；人名不折行，列宽须容纳多人名
+_TEMPLATE_MAX_WIDTH = {"group_week.html.j2": 1120.0}
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _env = Environment(
@@ -55,7 +56,6 @@ class PersonalRow:
     date_display: str
     time_range: str
     post_name: str
-    role: str
 
 
 @dataclass
@@ -70,7 +70,6 @@ class SlotRow:
     post_name: str
     time_range: str
     primary: str
-    backup: str
 
 
 @dataclass
@@ -98,10 +97,6 @@ class GroupWeekView:
 # ---------- 视图构建 ----------
 
 
-def _role_cn(role: str) -> str:
-    return _ROLE_CN.get(role, role)
-
-
 def _assignment_sort_key(a: Assignment) -> tuple:
     """有日期班次按日期+开始时间在前，历史班次（无日期）在后。"""
     if a.date:
@@ -127,34 +122,30 @@ def build_personal_view(
                 date_display=date_display,
                 time_range=f"{a.start_time}-{a.end_time}",
                 post_name=a.post_name,
-                role=_role_cn(a.role),
             )
         )
     return view
 
 
 def _aggregate_slots(assignments: Sequence[Assignment]) -> list[SlotRow]:
-    """按班次聚合：主/备合并同行，多个主值或备值以顿号连接，缺省显示“—”。"""
-    grouped: dict[str, dict[str, list[str]]] = {}
+    """按班次聚合：同班次多个值班人以顿号连接。"""
+    grouped: dict[str, list[str]] = {}
     order: list[str] = []
     for a in assignments:
         if a.slot_id not in grouped:
-            grouped[a.slot_id] = {"primary": [], "backup": []}
+            grouped[a.slot_id] = []
             order.append(a.slot_id)
-        if a.role in grouped[a.slot_id]:
-            if a.name not in grouped[a.slot_id][a.role]:
-                grouped[a.slot_id][a.role].append(a.name)
+        if a.name not in grouped[a.slot_id]:
+            grouped[a.slot_id].append(a.name)
     rows: list[tuple[SlotRow, str]] = []
     for slot_id in order:
         first = next(a for a in assignments if a.slot_id == slot_id)
-        names = grouped[slot_id]
         rows.append(
             (
                 SlotRow(
                     post_name=first.post_name,
                     time_range=f"{first.start_time}-{first.end_time}",
-                    primary="、".join(names["primary"]) or "—",
-                    backup="、".join(names["backup"]) or "—",
+                    primary="、".join(grouped[slot_id]) or "—",
                 ),
                 first.start_time,
             )
@@ -233,15 +224,16 @@ async def render_template(template_name: str, view) -> bytes:
     """渲染视图为 PNG 图片字节。渲染失败抛异常，由调用方降级。
 
     模板尺寸均以 rem 定义，根字号随 dutybot_render_scale 等比放大，
-    画布最大宽度同步放大，从而输出更高分辨率的图片。
+    画布最大宽度（按模板基准）同步放大，从而输出更高分辨率的图片。
     """
     scale = plugin_config.dutybot_render_scale
+    base_width = _TEMPLATE_MAX_WIDTH.get(template_name, _SCALE_BASE_MAX_WIDTH)
     html = _env.get_template(template_name).render(
         view=view, root_font_size=_SCALE_BASE_ROOT_FONT * scale
     )
     return await html_to_pic(
         html,
-        max_width=_SCALE_BASE_MAX_WIDTH * scale,
+        max_width=base_width * scale,
         img_fetch_fn=_deny_fetch,
         css_fetch_fn=_deny_fetch,
     )
@@ -269,7 +261,7 @@ def personal_text_chunks(view: PersonalView) -> list[str]:
     lines = [f"【{view.title}】", view.subtitle] if view.subtitle else [f"【{view.title}】"]
     for i, row in enumerate(view.rows, 1):
         lines.append(
-            f"{i}. {row.date_display} {row.time_range} | {row.post_name} | {row.role} "
+            f"{i}. {row.date_display} {row.time_range} | {row.post_name} "
             f"| {row.cycle_name} 第{row.week_no}周·{row.weekday}"
         )
     if not view.rows:
@@ -278,11 +270,11 @@ def personal_text_chunks(view: PersonalView) -> list[str]:
 
 
 def _slot_row_text(row: SlotRow) -> str:
-    return f"· {row.time_range} | {row.post_name} | 主值: {row.primary} | 备值: {row.backup}"
+    return f"· {row.time_range} | {row.post_name} | 值班人: {row.primary}"
 
 
 def _week_row_text(row: SlotRow) -> str:
-    return f"· {row.time_range} | {row.post_name} | 主班: {row.primary} | 备班: {row.backup}"
+    return f"· {row.time_range} | {row.post_name} | 值班人: {row.primary}"
 
 
 def group_day_text_chunks(view: GroupDayView) -> list[str]:

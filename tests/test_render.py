@@ -57,22 +57,20 @@ def test_personal_view_sorted_with_undated_last() -> None:
         "日期未定（历史班次）",
     ]
     assert view.rows[0].time_range == "08:00-10:00"
-    assert view.rows[2].role == "主值"
 
 
 def test_group_day_aggregation() -> None:
-    """同班次多主值顿号连接、缺省“—”、按开始时间排序。"""
+    """同班次多值班人顿号连接、按开始时间排序。"""
     render = _render_mod()
     assignments = [
-        make_assignment(id="1", slot_id="s2", start_time="14:00", end_time="16:00", post_name="西门岗", name="李四", role="primary"),
-        make_assignment(id="2", slot_id="s2", start_time="14:00", end_time="16:00", post_name="西门岗", name="王五", role="backup"),
-        make_assignment(id="3", slot_id="s1", start_time="08:00", end_time="10:00", post_name="东门岗", name="张三", role="primary"),
+        make_assignment(id="1", slot_id="s2", start_time="14:00", end_time="16:00", post_name="西门岗", name="李四"),
+        make_assignment(id="2", slot_id="s2", start_time="14:00", end_time="16:00", post_name="西门岗", name="王五"),
+        make_assignment(id="3", slot_id="s1", start_time="08:00", end_time="10:00", post_name="东门岗", name="张三"),
     ]
     view = render.build_group_day_view("今日值班安排", "10月27日（周二）", assignments)
     assert [r.time_range for r in view.rows] == ["08:00-10:00", "14:00-16:00"]
-    assert view.rows[1].primary == "李四"
-    assert view.rows[1].backup == "王五"
-    assert view.rows[0].backup == "—"
+    assert view.rows[1].primary == "李四、王五"
+    assert view.rows[0].primary == "张三"
 
 
 def test_group_week_view_builds_week_grid() -> None:
@@ -83,11 +81,11 @@ def test_group_week_view_builds_week_grid() -> None:
         make_assignment(id="1", date="2026-11-02", slot_id="s1"),
         make_assignment(
             id="2", date="2026-11-02", slot_id="s2",
-            start_time="14:00", end_time="16:00", name="李四", role="backup",
+            start_time="14:00", end_time="16:00", name="李四",
         ),
         make_assignment(
             id="3", date="2026-11-03", slot_id="s2",
-            start_time="14:00", end_time="16:00", post_name="西门岗", name="王五", role="primary",
+            start_time="14:00", end_time="16:00", post_name="西门岗", name="王五",
         ),
         make_assignment(id="4", date=None, slot_id="s3"),  # 日期未定不参与
     ]
@@ -100,16 +98,15 @@ def test_group_week_view_builds_week_grid() -> None:
     assert view.date_range == "11月2日 - 11月8日"
     assert view.slot_times == ["08:00-10:00", "14:00-16:00"]
     assert view.cells[0][0][0].post_name == "东门岗"  # 周一早班
-    assert view.cells[1][0][0].primary == "—"  # 周一午班缺主班
-    assert view.cells[1][0][0].backup == "李四"
+    assert view.cells[1][0][0].primary == "李四"  # 周一午班
     assert view.cells[1][1][0].primary == "王五"  # 周二午班
     assert not view.cells[0][1]  # 周二无早班
 
     chunks = render.group_week_text_chunks(view)
     assert "【下周值班安排】11月2日 - 11月8日" in chunks[0]
     assert "—— 星期一 11-02 ——" in chunks[0]
-    assert "主班: 王五" in chunks[0]
-    assert "备班: 李四" in chunks[0]
+    assert "值班人: 李四" in chunks[0]
+    assert "值班人: 王五" in chunks[0]
 
 
 def test_filter_by_dates_and_student() -> None:
@@ -138,7 +135,7 @@ def test_text_chunks() -> None:
     chunks = render.group_day_text_chunks(view)
     assert len(chunks) == 1
     assert "【今日值班安排】10月27日（周二）" in chunks[0]
-    assert "主值: 张三" in chunks[0]
+    assert "值班人: 张三" in chunks[0]
 
     pview = render.build_personal_view("我的排班", "张三（123）", [make_assignment()])
     ptext = render.personal_text_chunks(pview)[0]
