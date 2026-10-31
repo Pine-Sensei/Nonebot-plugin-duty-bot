@@ -20,13 +20,6 @@ def now_beijing() -> datetime:
     return datetime.now(BEIJING)
 
 
-def weekday_name(weekday: int) -> str:
-    """将 OneBot 语义的 weekday（1=周一 … 7=周日）转为中文名。"""
-    if 1 <= weekday <= 7:
-        return WEEKDAY_NAMES[weekday - 1]
-    return f"星期{weekday}"
-
-
 def week_monday(d: date) -> date:
     """d 所在周的周一。"""
     return d - timedelta(days=d.weekday())

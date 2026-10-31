@@ -22,7 +22,7 @@ class FakeQueue:
 
 
 class FailImageQueue(FakeQueue):
-    """图片消息发送失败、文本消息成功的假队列。"""
+    """图片消息发送明确失败（协议端拒绝）、文本消息成功的假队列。"""
 
     def __init__(self) -> None:
         super().__init__()
@@ -35,6 +35,24 @@ class FailImageQueue(FakeQueue):
 
             fut = asyncio.get_running_loop().create_future()
             fut.set_result(SendResult(False, "send failed"))
+            return fut
+        return super().enqueue(bot, chat_type, target_id, message, category)
+
+
+class UncertainImageQueue(FakeQueue):
+    """图片消息发送结果未知（超时，可能已送达）、文本消息成功的假队列。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.image_tried = False
+
+    def enqueue(self, bot, chat_type, target_id, message, category):
+        if not isinstance(message, str):
+            self.image_tried = True
+            from nonebot_plugin_duty_bot.sender import SendResult
+
+            fut = asyncio.get_running_loop().create_future()
+            fut.set_result(SendResult(False, "NetworkError: timeout", uncertain=True))
             return fut
         return super().enqueue(bot, chat_type, target_id, message, category)
 
@@ -74,7 +92,7 @@ def test_group_day_aggregation() -> None:
 
 
 def test_group_week_view_builds_week_grid() -> None:
-    """周网格：固定 7 列（周一~周日），行=去重升序时段，格子=当日班次聚合；日期未定不参与。"""
+    """周网格：仅保留有排班的日期列（整天无排班剔除），行=去重升序时段；日期未定不参与。"""
     render = _render_mod()
     monday = date(2026, 11, 2)
     assignments = [
@@ -83,28 +101,29 @@ def test_group_week_view_builds_week_grid() -> None:
             id="2", date="2026-11-02", slot_id="s2",
             start_time="14:00", end_time="16:00", name="李四",
         ),
+        # 周二~周三整天无排班：不渲染该列
         make_assignment(
-            id="3", date="2026-11-03", slot_id="s2",
+            id="3", date="2026-11-05", slot_id="s2",
             start_time="14:00", end_time="16:00", post_name="西门岗", name="王五",
         ),
         make_assignment(id="4", date=None, slot_id="s3"),  # 日期未定不参与
     ]
     view = render.build_group_week_view("下周值班安排", monday, assignments)
-    assert [h.weekday for h in view.headers] == [
-        "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日",
+    assert [(h.weekday, h.date_display) for h in view.headers] == [
+        ("星期一", "11-02"), ("星期四", "11-05"),
     ]
-    assert view.headers[0].date_display == "11-02"
-    assert view.headers[6].date_display == "11-08"
-    assert view.date_range == "11月2日 - 11月8日"
+    assert view.date_range == "11月2日 - 11月5日"  # 首末有排班日
     assert view.slot_times == ["08:00-10:00", "14:00-16:00"]
     assert view.cells[0][0][0].post_name == "东门岗"  # 周一早班
     assert view.cells[1][0][0].primary == "李四"  # 周一午班
-    assert view.cells[1][1][0].primary == "王五"  # 周二午班
-    assert not view.cells[0][1]  # 周二无早班
+    assert view.cells[1][1][0].primary == "王五"  # 周四午班
+    assert not view.cells[0][1]  # 周四无早班
+    assert view.canvas_width == 800  # 3 列（时段+2 天）低于 800 下限
 
     chunks = render.group_week_text_chunks(view)
-    assert "【下周值班安排】11月2日 - 11月8日" in chunks[0]
+    assert "【下周值班安排】11月2日 - 11月5日" in chunks[0]
     assert "—— 星期一 11-02 ——" in chunks[0]
+    assert "—— 星期四 11-05 ——" in chunks[0]
     assert "值班人: 李四" in chunks[0]
     assert "值班人: 王五" in chunks[0]
 
@@ -217,7 +236,7 @@ async def test_deliver_view_falls_back_to_text_on_render_error(monkeypatch) -> N
 
 
 async def test_deliver_view_falls_back_to_text_on_send_failure(monkeypatch) -> None:
-    """图片发送失败 → 纯文本分段发送。"""
+    """图片发送明确失败（协议端拒绝） → 纯文本分段发送。"""
     render = _render_mod()
 
     async def render_ok(*args, **kwargs) -> bytes:
@@ -235,3 +254,25 @@ async def test_deliver_view_falls_back_to_text_on_send_failure(monkeypatch) -> N
     assert result.ok
     assert q.image_failed  # 图片发送曾失败
     assert all(isinstance(s[2], str) for s in q.sent)  # 降级文本已发送
+
+
+async def test_deliver_view_skips_text_on_uncertain_send(monkeypatch) -> None:
+    """图片发送结果未知（超时，可能已送达） → 不降级纯文本，避免图片与文字重复。"""
+    render = _render_mod()
+
+    async def render_ok(*args, **kwargs) -> bytes:
+        return b"IMG"
+
+    q = UncertainImageQueue()
+    monkeypatch.setattr(render, "get_queue", lambda: q)
+    monkeypatch.setattr(render, "render_template", render_ok)
+    view = render.build_personal_view("我的排班", "张三", [make_assignment()])
+    result = await render.deliver_view(
+        object(), "private", 1,
+        template_name="personal.html.j2", view=view,
+        text_chunks=render.personal_text_chunks,
+    )
+    assert q.image_tried  # 图片发送曾尝试（结果未知）
+    assert q.sent == []  # 未降级发送任何纯文本
+    assert not result.ok and result.uncertain
+    assert "结果未知" in (result.error or "")

@@ -3,6 +3,8 @@
 - 所有出站消息（命令回复、私聊提醒/预告、群播报、图片消息）统一入队，串行发送。
 - 私聊与群聊分别按滑动窗口限流（每分钟条数可配置）；达限后排队等待放行，不丢弃。
 - 某类型达限时跳过其在队消息，优先发送其他类型中可发送的消息，避免队头阻塞。
+- 发送失败区分「明确失败」（协议端拒绝等）与「结果未知」（超时/网络异常，
+  消息可能已实际送达），由调用方决定是否降级重发，避免用户收到重复内容。
 - 用户命令的即时回复不被丢弃，且优先于批量播报/预告发送。
 - 队列长度超过上限时丢弃最早入队的播报/预告类消息并记录日志。
 - 队列不持久化，重启后清空。
@@ -17,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Iterable
 
 from nonebot import logger
-from nonebot.adapters.onebot.v11 import Bot, Message
+from nonebot.adapters.onebot.v11 import ActionFailed, Bot, Message, NetworkError
 
 # 消息类别
 CAT_COMMAND = "command"  # 用户命令即时回复：不丢弃、优先发送
@@ -42,6 +44,8 @@ _SEND_API = {
 class SendResult:
     ok: bool
     error: str | None = None
+    uncertain: bool = False
+    """True 表示发送结果未知（超时/网络异常）：消息可能已实际送达，不应重发以免重复"""
 
 
 @dataclass
@@ -237,6 +241,23 @@ class SendQueue:
         message = Message(item.message) if isinstance(item.message, str) else item.message
         try:
             await item.bot.call_api(api, **{key: item.target_id, "message": message})
+        except NetworkError as e:
+            # 超时/网络异常：消息可能已实际送达，结算为「结果未知」，
+            # 调用方据此跳过降级重发，避免用户同时收到图片与文字等重复内容
+            error = f"NetworkError: {e.msg or e}"
+            logger.warning(
+                f"消息发送结果未知[{item.category}] {item.chat_type}({item.target_id}): {error}"
+            )
+            if not item.future.done():
+                item.future.set_result(SendResult(False, error, uncertain=True))
+        except ActionFailed as e:
+            # 协议端明确拒绝（风控/参数错误等）：消息确定未送达，可安全降级重发
+            error = f"ActionFailed: {e.info}"
+            logger.warning(
+                f"消息发送失败[{item.category}] {item.chat_type}({item.target_id}): {error}"
+            )
+            if not item.future.done():
+                item.future.set_result(SendResult(False, error))
         except Exception as e:
             # 业务发送失败：结算为失败结果，发送循环继续处理后续消息
             logger.warning(
@@ -247,9 +268,10 @@ class SendQueue:
                 item.future.set_result(SendResult(False, f"{e.__class__.__name__}: {e}"))
         except BaseException as e:
             if isinstance(e, asyncio.CancelledError):
-                # 队列关闭取消在途发送：与未发送消息统一按失败结算，不向调用方抛取消异常
+                # 队列关闭取消在途发送：与未发送消息统一按失败结算，不向调用方抛取消异常；
+                # 在途消息可能已发出，标记结果未知
                 if not item.future.done():
-                    item.future.set_result(SendResult(False, "queue closed"))
+                    item.future.set_result(SendResult(False, "queue closed", uncertain=True))
                 raise
             # 其他控制流异常（测试断言失败等）：交给调用方，不静默吞掉；
             # 发送循环随即停止（见 _run），下一次入队会自动重启。

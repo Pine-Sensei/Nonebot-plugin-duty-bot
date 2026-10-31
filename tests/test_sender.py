@@ -4,11 +4,17 @@ import asyncio
 
 
 class FakeBot:
-    def __init__(self, fail_for: set[str] | None = None, clock=None) -> None:
+    def __init__(
+        self,
+        fail_for: set[str] | None = None,
+        clock=None,
+        fail_with: BaseException | None = None,
+    ) -> None:
         self.calls: list[tuple] = []
         self.times: list[float] = []  # 每次发送时刻（clock.now），验证限流等待
         self.fail_for = fail_for or set()
         self.clock = clock
+        self.fail_with = fail_with  # 命中 fail_for 时抛出的异常（默认 RuntimeError）
 
     @staticmethod
     def text(kwargs) -> str:
@@ -19,6 +25,8 @@ class FakeBot:
     async def call_api(self, api: str, **kwargs):
         text = self.text(kwargs)
         if any(marker in text for marker in self.fail_for):
+            if self.fail_with is not None:
+                raise self.fail_with
             raise RuntimeError("mock send failure")
         self.calls.append((api, kwargs))
         if self.clock is not None:
@@ -133,6 +141,40 @@ async def test_send_failure_resolves_future() -> None:
     bot = FakeBot(fail_for={"boom"})
     result = await q.enqueue(bot, "private", 1, "boom", "command")
     assert not result.ok and "mock send failure" in result.error
+    assert not result.uncertain  # 未知异常视为明确失败，可安全降级重发
+    await q.close()
+
+
+async def test_send_timeout_resolves_uncertain() -> None:
+    """超时/网络异常（NetworkError）：结算为「结果未知」，消息可能已实际送达。"""
+    from nonebot.adapters.onebot.v11 import NetworkError
+
+    clock = Clock()
+    q = _make_queue(clock, 10, 10, 50)
+    q.start()
+    bot = FakeBot(
+        fail_for={"timeout"},
+        fail_with=NetworkError("WebSocket call api send_private_msg timeout"),
+    )
+    result = await q.enqueue(bot, "private", 1, "timeout", "forecast")
+    assert not result.ok and result.uncertain
+    assert "timeout" in (result.error or "")
+    await q.close()
+
+
+async def test_send_action_failed_is_certain_failure() -> None:
+    """协议端明确拒绝（ActionFailed）：确定未送达，不标记结果未知，可安全降级重发。"""
+    from nonebot.adapters.onebot.v11 import ActionFailed
+
+    clock = Clock()
+    q = _make_queue(clock, 10, 10, 50)
+    q.start()
+    bot = FakeBot(
+        fail_for={"reject"}, fail_with=ActionFailed(retcode=1200, status="failed")
+    )
+    result = await q.enqueue(bot, "private", 1, "reject", "forecast")
+    assert not result.ok and not result.uncertain
+    assert "ActionFailed" in (result.error or "") and "1200" in (result.error or "")
     await q.close()
 
 

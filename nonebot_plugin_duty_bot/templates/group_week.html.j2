@@ -29,10 +29,11 @@ th.time-col { background: #f2f6fd; }
   <div class="title">{{ view.title }}</div>
   <div class="subtitle">{{ view.date_range }}</div>
   {% if view.slot_times %}
+  {% set col_pct = (100 / (view.headers | length + 1)) | round(3) %}
   <table>
     <tr>
-      <th><span class="label">时段</span></th>
-      {% for h in view.headers %}<th><span class="weekday">{{ h.weekday }}</span><span class="date">{{ h.date_display }}</span></th>{% endfor %}
+      <th style="width: {{ col_pct }}%"><span class="label">时段</span></th>
+      {% for h in view.headers %}<th style="width: {{ col_pct }}%"><span class="weekday">{{ h.weekday }}</span><span class="date">{{ h.date_display }}</span></th>{% endfor %}
     </tr>
     {% for time in view.slot_times %}
     {% set row_cells = view.cells[loop.index0] %}
