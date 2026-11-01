@@ -20,7 +20,7 @@ __plugin_meta__ = PluginMetadata(
     usage=(
         "私聊：/绑定 学号 姓名、/我的排班、/今日值班、/解绑、/帮助\n"
         "群内（配置群）：/今日值班\n"
-        "管理员：/状态、/绑定列表、/绑定 QQ号 学号 姓名、/解绑 QQ号、/重播 [明日|每周]\n"
+        "管理员：/状态、/绑定列表、/绑定 QQ号 学号 姓名、/解绑 QQ号、/手动播报 今日|明日|本周|下周\n"
         "需在 .env 配置 dutybot_api_base_url、dutybot_api_key、dutybot_group_id、"
         "dutybot_admins 等配置项"
     ),

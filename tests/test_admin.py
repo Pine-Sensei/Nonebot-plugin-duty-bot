@@ -1,4 +1,4 @@
-"""R4 管理员命令测试（nonebug）：状态、绑定列表、重播、帮助。"""
+"""R4 管理员命令测试（nonebug）：状态、绑定列表、手动播报、帮助。"""
 
 import types
 from datetime import timedelta
@@ -128,216 +128,170 @@ async def test_bind_list_in_group_silent(app: App, make_events):
     await run_matcher(app, bind_list_cmd, make_group(ADMIN_QQ, GROUP_ID, "/绑定列表"), [])
 
 
-# ---------- /重播 ----------
+# ---------- /手动播报 ----------
 
 
-async def test_replay_requires_admin(app: App, make_events):
+async def test_manual_requires_admin(app: App, make_events):
     make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
 
     await run_matcher(
-        app, replay_cmd, make_private(USER_QQ, "/重播"),
+        app, manual_cmd, make_private(USER_QQ, "/手动播报 明日"),
         [("send_private_msg", {"user_id": USER_QQ, "message": ob("该命令仅限管理员使用。")})],
     )
 
 
-async def test_replay_in_group_silent(app: App, make_events):
-    """群内 /重播 一律静默（管理员也不响应，不回复拒绝文案）。"""
+async def test_manual_in_group_silent(app: App, make_events):
+    """群内 /手动播报 一律静默（管理员也不响应，不回复拒绝文案）。"""
     _, make_group = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
 
-    await run_matcher(app, replay_cmd, make_group(ADMIN_QQ, GROUP_ID, "/重播"), [])
-    await run_matcher(app, replay_cmd, make_group(USER_QQ, GROUP_ID, "/重播"), [])
+    await run_matcher(app, manual_cmd, make_group(ADMIN_QQ, GROUP_ID, "/手动播报 明日"), [])
+    await run_matcher(app, manual_cmd, make_group(USER_QQ, GROUP_ID, "/手动播报 明日"), [])
 
 
-async def test_replay_no_state_computes_current(app: App, fake_api, monkeypatch, make_events):
-    """无执行记录时不拒绝：按当前时间推算本期（明日）直接重发。"""
+async def test_manual_requires_explicit_type(app: App, make_events):
+    """无参数与非法参数（含旧的「每周」「当前周」）均提示用法：类型必须显式指定。"""
+    usage = "用法：/手动播报 今日|明日|本周|下周"
+    make_private, _ = make_events
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
+
+    for text in ("/手动播报", "/手动播报 昨天", "/手动播报 每周", "/手动播报 当前周"):
+        await run_matcher(
+            app, manual_cmd, make_private(ADMIN_QQ, text),
+            [("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(usage)})],
+        )
+
+
+async def test_manual_today(app: App, fake_api, monkeypatch, make_events):
+    """/手动播报 今日：按当前时间推算当日，实时查询渲染发送。"""
     from nonebot_plugin_duty_bot import render as render_mod
     from nonebot_plugin_duty_bot.timeutil import now_beijing
     from nonebot.adapters.onebot.v11 import MessageSegment
 
     async def fake_render(template_name, view):
-        return b"REPLAY-IMG"
+        return b"MANUAL-IMG"
 
     monkeypatch.setattr(render_mod, "render_template", fake_render)
 
-    key = (now_beijing().date() + timedelta(days=1)).isoformat()
+    key = now_beijing().date().isoformat()
     fake_api.roster.assignments = [make_assignment(date=key)]
 
     make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
 
     await run_matcher(
-        app, replay_cmd, make_private(ADMIN_QQ, "/重播"),
+        app, manual_cmd, make_private(ADMIN_QQ, "/手动播报 今日"),
         [
-            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
-            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{key}）群播报。")}),
+            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"MANUAL-IMG")}),
+            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已手动播报今日值班安排（{key}）。")}),
         ],
     )
 
 
-async def test_replay_invalid_arg(app: App, make_events):
-    make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
-
-    await run_matcher(
-        app, replay_cmd, make_private(ADMIN_QQ, "/重播 昨天"),
-        [("send_private_msg", {"user_id": ADMIN_QQ, "message": ob("用法：/重播 [明日|每周]")})],
-    )
-
-
-async def test_replay_success_state_still_replays(app: App, fake_api, monkeypatch, make_events):
-    """本期已成功也照样重发（不关心上次执行是否失败）。"""
-    from nonebot_plugin_duty_bot import render as render_mod
-    from nonebot_plugin_duty_bot.storage import TASK_TOMORROW, get_db
-    from nonebot_plugin_duty_bot.timeutil import now_beijing
-    from nonebot.adapters.onebot.v11 import MessageSegment
-
-    async def fake_render(template_name, view):
-        return b"REPLAY-IMG"
-
-    monkeypatch.setattr(render_mod, "render_template", fake_render)
-
-    key = (now_beijing().date() + timedelta(days=1)).isoformat()
-    await get_db().set_task_state(TASK_TOMORROW, "success", key, None)
-    fake_api.roster.assignments = [make_assignment(date=key)]
-
-    make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
-
-    await run_matcher(
-        app, replay_cmd, make_private(ADMIN_QQ, f"/重播 明日"),
-        [
-            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
-            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{key}）群播报。")}),
-        ],
-    )
-
-
-async def test_replay_tomorrow_broadcast(app: App, fake_api, monkeypatch, make_events):
-    """补发最近一期失败的明日播报：按业务键重查重渲染，成功后更新任务状态。"""
+async def test_manual_tomorrow(app: App, fake_api, monkeypatch, make_events):
+    """/手动播报 明日：按当前时间推算明天，实时查询渲染发送，不读写任务状态。"""
     from nonebot_plugin_duty_bot import render as render_mod
     from nonebot_plugin_duty_bot.storage import TASK_TOMORROW, get_db
     from nonebot_plugin_duty_bot.timeutil import now_beijing
     from nonebot.adapters.onebot.v11 import MessageSegment
 
     async def fake_render(template_name, view):
-        return b"REPLAY-IMG"
+        return b"MANUAL-IMG"
 
     monkeypatch.setattr(render_mod, "render_template", fake_render)
 
     key = (now_beijing().date() + timedelta(days=1)).isoformat()
-    await get_db().set_task_state(TASK_TOMORROW, "failed", key, "无可用机器人连接")
+    # 预置历史失败状态：手动播报不应读取或改写它
+    await get_db().set_task_state(TASK_TOMORROW, "failed", "2000-01-01", "无可用机器人连接")
     fake_api.roster.assignments = [make_assignment(date=key)]
 
     make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
 
     await run_matcher(
-        app, replay_cmd, make_private(ADMIN_QQ, f"/重播 明日"),
+        app, manual_cmd, make_private(ADMIN_QQ, "/手动播报 明日"),
         [
-            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
-            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{key}）群播报。")}),
+            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"MANUAL-IMG")}),
+            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已手动播报明日值班安排（{key}）。")}),
         ],
     )
+    # 任务状态保持原样（不影响定时任务的幂等跳过）
     state = await get_db().get_task_state(TASK_TOMORROW)
-    assert state.status == "success" and state.business_key == key
+    assert state.status == "failed" and state.business_key == "2000-01-01"
 
 
-async def test_replay_weekly_broadcast(app: App, fake_api, monkeypatch, make_events):
-    """补发最近一期失败的每周群播报：按业务键重查重渲染，成功后更新任务状态。"""
+async def test_manual_current_week(app: App, fake_api, monkeypatch, make_events):
+    """/手动播报 本周：按当前时间推算本周（周一~周日），实时查询渲染发送。"""
     from nonebot_plugin_duty_bot import render as render_mod
-    from nonebot_plugin_duty_bot.storage import TASK_GROUP_WEEKLY, get_db
     from nonebot_plugin_duty_bot.timeutil import now_beijing, this_week_range
     from nonebot.adapters.onebot.v11 import MessageSegment
 
     async def fake_render(template_name, view):
-        return b"REPLAY-IMG"
+        return b"MANUAL-IMG"
 
     monkeypatch.setattr(render_mod, "render_template", fake_render)
 
-    key = this_week_range(now_beijing().date())[0].isoformat()
-    await get_db().set_task_state(TASK_GROUP_WEEKLY, "failed", key, "无可用机器人连接")
+    monday, _ = this_week_range(now_beijing().date())
+    key = monday.isoformat()
     fake_api.roster.assignments = [make_assignment(date=key)]
 
     make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
 
     await run_matcher(
-        app, replay_cmd, make_private(ADMIN_QQ, "/重播 每周"),
+        app, manual_cmd, make_private(ADMIN_QQ, "/手动播报 本周"),
         [
-            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
-            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{key}）群播报。")}),
+            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"MANUAL-IMG")}),
+            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已手动播报本周值班安排（{key} 起）。")}),
         ],
     )
-    state = await get_db().get_task_state(TASK_GROUP_WEEKLY)
-    assert state.status == "success" and state.business_key == key
 
 
-async def test_replay_auto_picks_recent_failure(app: App, fake_api, monkeypatch, make_events):
-    """无参数：仅明日播报失败时自动补发该期。"""
+async def test_manual_next_week(app: App, fake_api, monkeypatch, make_events):
+    """/手动播报 下周：按当前时间推算下周（周一~周日），实时查询渲染发送。"""
     from nonebot_plugin_duty_bot import render as render_mod
-    from nonebot_plugin_duty_bot.storage import TASK_TOMORROW, get_db
-    from nonebot_plugin_duty_bot.timeutil import now_beijing
+    from nonebot_plugin_duty_bot.timeutil import next_week_range, now_beijing
     from nonebot.adapters.onebot.v11 import MessageSegment
 
     async def fake_render(template_name, view):
-        return b"REPLAY-IMG"
+        return b"MANUAL-IMG"
 
     monkeypatch.setattr(render_mod, "render_template", fake_render)
 
-    key = (now_beijing().date() + timedelta(days=1)).isoformat()
-    await get_db().set_task_state(TASK_TOMORROW, "failed", key, "发送失败")
+    monday, _ = next_week_range(now_beijing().date())
+    key = monday.isoformat()
     fake_api.roster.assignments = [make_assignment(date=key)]
 
     make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
 
     await run_matcher(
-        app, replay_cmd, make_private(ADMIN_QQ, "/重播"),
+        app, manual_cmd, make_private(ADMIN_QQ, "/手动播报 下周"),
         [
-            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
-            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{key}）群播报。")}),
+            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"MANUAL-IMG")}),
+            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已手动播报下周值班安排（{key} 起）。")}),
         ],
     )
 
 
-async def test_replay_auto_picks_most_recent_failure(app: App, fake_api, monkeypatch, make_events):
-    """无参数且明日与每周均失败 → 选 ran_at 更近的一期补发。"""
-    from nonebot_plugin_duty_bot import render as render_mod, storage
-    from nonebot_plugin_duty_bot.storage import TASK_GROUP_WEEKLY, TASK_TOMORROW, get_db
-    from nonebot_plugin_duty_bot.timeutil import now_beijing, this_week_range
-    from nonebot.adapters.onebot.v11 import MessageSegment
+async def test_manual_tomorrow_empty_roster(app: App, fake_api, make_events):
+    """明日无排班：向群发送文本提示并回复成功，便于管理员确认结果。"""
+    from nonebot_plugin_duty_bot.timeutil import format_date_cn, now_beijing
 
-    async def fake_render(template_name, view):
-        return b"REPLAY-IMG"
-
-    monkeypatch.setattr(render_mod, "render_template", fake_render)
-
-    # 明日播报 12:00 失败，每周播报 13:00 失败 → 应补发每周
-    tomorrow_key = (now_beijing().date() + timedelta(days=1)).isoformat()
-    monkeypatch.setattr(storage, "_now_iso", lambda: "2026-10-27T12:00:00")
-    await get_db().set_task_state(TASK_TOMORROW, "failed", tomorrow_key, "发送失败")
-    weekly_key = this_week_range(now_beijing().date())[0].isoformat()
-    monkeypatch.setattr(storage, "_now_iso", lambda: "2026-10-27T13:00:00")
-    await get_db().set_task_state(TASK_GROUP_WEEKLY, "failed", weekly_key, "发送失败")
-
-    fake_api.roster.assignments = [make_assignment(date=weekly_key)]
+    day = now_beijing().date() + timedelta(days=1)
+    key = day.isoformat()
 
     make_private, _ = make_events
-    from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
+    from nonebot_plugin_duty_bot.handlers.admin import manual_cmd
 
     await run_matcher(
-        app, replay_cmd, make_private(ADMIN_QQ, "/重播"),
+        app, manual_cmd, make_private(ADMIN_QQ, "/手动播报 明日"),
         [
-            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
-            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{weekly_key}）群播报。")}),
+            ("send_group_msg", {"group_id": GROUP_ID, "message": ob(f"明日值班安排：{format_date_cn(day)} 无值班安排")}),
+            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已手动播报明日值班安排（{key}）。")}),
         ],
     )
-    state = await get_db().get_task_state(TASK_GROUP_WEEKLY)
-    assert state.status == "success" and state.business_key == weekly_key
-    other = await get_db().get_task_state(TASK_TOMORROW)
-    assert other.status == "failed" and other.business_key == tomorrow_key
 
 
 # ---------- /帮助 ----------
@@ -381,7 +335,7 @@ async def test_help_private_admin(app: App, fake_api, make_events):
         "你还未绑定学号。可用命令：\n/绑定 学号 姓名 - 自助绑定（姓名须与排班一致）\n/帮助 - 查看本菜单"
         "\n\n管理员命令：\n/状态 - 运行体检\n/绑定列表 - 查看全部绑定\n"
         "/绑定 QQ号 学号 姓名 - 人工绑定\n/解绑 QQ号 - 解除指定绑定\n"
-        "/重播 [明日|每周] - 手动重发最近一期群播报"
+        "/手动播报 今日|明日|本周|下周 - 立即向值班群播报指定类型值班安排"
     )
     await run_matcher(
         app, help_cmd, make_private(ADMIN_QQ, "/帮助"),

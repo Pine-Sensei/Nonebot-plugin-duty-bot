@@ -1,4 +1,4 @@
-"""R4 管理员命令：/状态、/绑定列表、/重播、/帮助。
+"""R4 管理员命令：/状态、/绑定列表、/手动播报、/帮助。
 
 管理员为配置的 QQ 号白名单；权限判断仅基于 QQ 号，不依赖群身份。
 管理命令仅私聊响应，群内一律静默（防止管理操作与用户信息在群内可见）。
@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import time
-from datetime import date, timedelta
+from datetime import timedelta
 
 from nonebot import get_bots, logger, on_command, require
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
@@ -23,12 +23,13 @@ from ..jobs import (
     broadcast_group_day,
     broadcast_group_week,
 )
-from ..storage import (
-    TASK_GROUP_WEEKLY,
-    TASK_TOMORROW,
-    get_db,
+from ..storage import get_db
+from ..timeutil import (
+    format_uptime,
+    next_week_range,
+    now_beijing,
+    this_week_range,
 )
-from ..timeutil import format_uptime, next_week_range, now_beijing
 from .common import (
     PROCESS_START,
     api_error_reply,
@@ -41,7 +42,7 @@ from .common import (
 
 status_cmd = on_command("状态", priority=10, block=True)
 bind_list_cmd = on_command("绑定列表", priority=10, block=True)
-replay_cmd = on_command("重播", priority=10, block=True)
+manual_cmd = on_command("手动播报", priority=10, block=True)
 help_cmd = on_command("帮助", priority=10, block=True)
 
 _ADMIN_MENU = (
@@ -50,7 +51,7 @@ _ADMIN_MENU = (
     "/绑定列表 - 查看全部绑定\n"
     "/绑定 QQ号 学号 姓名 - 人工绑定\n"
     "/解绑 QQ号 - 解除指定绑定\n"
-    "/重播 [明日|每周] - 手动重发最近一期群播报"
+    "/手动播报 今日|明日|本周|下周 - 立即向值班群播报指定类型值班安排"
 )
 
 _PRIVATE_UNBOUND_MENU = (
@@ -139,72 +140,56 @@ async def _handle_bind_list(matcher: Matcher, bot: Bot, event) -> None:
     await matcher.finish()
 
 
-@replay_cmd.handle()
-async def _handle_replay(matcher: Matcher, bot: Bot, event, args = CommandArg()) -> None:
-    """重播：手动重发最近一期群播报（不关心上次执行是否失败）。
+@manual_cmd.handle()
+async def _handle_manual_broadcast(matcher: Matcher, bot: Bot, event, args = CommandArg()) -> None:
+    """手动播报：立即向值班群发送指定类型的群播报。
 
-    - 无参数：自动选两类群播报任务中最近执行的一类；
-    - 明日/每周：指定类型重发该类型最近一期；
-    - 按业务键重新查询当前数据并渲染发送；无执行记录时按当前时间推算本期。
+    - 今日/明日：按当前时间推算当日/次日，实时查询并播报该日值班安排；
+    - 本周/下周：按当前时间推算本周/下周（周一至周日），实时查询并播报该周值班安排；
+    - 必须显式指定类型，无隐藏默认值；不读取、不写入任务状态，
+      因此也不影响定时任务的幂等跳过。
     """
     if not is_private(event):
         await matcher.finish()  # 管理命令仅私聊，群内一律静默
         return
     if not is_admin(event):
-        log_usage(event, "重播(拒绝)")
+        log_usage(event, "手动播报(拒绝)")
         await reply(matcher, bot, event, "该命令仅限管理员使用。")
         return
-    log_usage(event, "重播")
+    log_usage(event, "手动播报")
     arg = args.extract_plain_text().strip()
-    task_alias = {"明日": TASK_TOMORROW, "每周": TASK_GROUP_WEEKLY}
-    if arg and arg not in task_alias:
-        await reply(matcher, bot, event, "用法：/重播 [明日|每周]")
+    if arg not in ("今日", "明日", "本周", "下周"):
+        await reply(matcher, bot, event, "用法：/手动播报 今日|明日|本周|下周")
         return
     if not plugin_config.dutybot_group_id:
-        await reply(matcher, bot, event, "未配置值班群号，无法补发。")
+        await reply(matcher, bot, event, "未配置值班群号，无法播报。")
         return
 
-    db = get_db()
     now = now_beijing()
-    if arg:
-        task_id = task_alias[arg]
-    else:
-        candidates: list[tuple[str, str]] = []
-        for tid in (TASK_TOMORROW, TASK_GROUP_WEEKLY):
-            state = await db.get_task_state(tid)
-            if state:
-                candidates.append((state.ran_at, tid))
-        candidates.sort()
-        task_id = candidates[-1][1] if candidates else TASK_TOMORROW
-
-    state = await db.get_task_state(task_id)
-    key = state.business_key if state and state.business_key else None
-    if not key:
-        # 无执行记录（或记录缺少业务键）时按当前时间推算本期
-        if task_id == TASK_TOMORROW:
-            key = (now.date() + timedelta(days=1)).isoformat()
-        else:
-            key = next_week_range(now.date())[0].isoformat()
-
-    logger.info(f"管理员重播: {task_id} 期 {key}")
+    logger.info(f"管理员手动播报: {arg}")
     try:
-        day = date.fromisoformat(key)
-        if task_id == TASK_TOMORROW:
-            result = await broadcast_group_day(bot, day, title="明日值班安排")
+        if arg in ("今日", "明日"):
+            day = now.date() if arg == "今日" else now.date() + timedelta(days=1)
+            result = await broadcast_group_day(bot, day, title=f"{arg}值班安排")
+        elif arg == "本周":
+            day = this_week_range(now.date())[0]
+            result = await broadcast_group_week(bot, day, title="本周值班安排")
         else:
+            day = next_week_range(now.date())[0]
             result = await broadcast_group_week(bot, day, title="下周值班安排")
     except DutyApiError as e:
-        logger.warning(f"重播接口异常: {e.message}")
+        logger.warning(f"手动播报接口异常: {e.message}")
         await reply(matcher, bot, event, api_error_reply())
         return
-    except ValueError:
-        await reply(matcher, bot, event, "业务键格式异常，无法重播。")
-        return
+    key = day.isoformat()
     if result.ok:
-        await db.set_task_state(task_id, "success", key, None)
-        await reply(matcher, bot, event, f"已补发本期（{key}）群播报。")
+        if arg in ("今日", "明日"):
+            text = f"已手动播报{arg}值班安排（{key}）。"
+        else:
+            text = f"已手动播报{arg}值班安排（{key} 起）。"
+        await reply(matcher, bot, event, text)
     else:
-        await reply(matcher, bot, event, f"补发失败：{result.error}")
+        await reply(matcher, bot, event, f"播报失败：{result.error}")
 
 
 @help_cmd.handle()

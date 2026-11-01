@@ -93,7 +93,7 @@ def try_get_bot() -> Bot | None:
         return None
 
 
-# ---------- 群播报核心（供定时任务与「重播」共用） ----------
+# ---------- 群播报核心（供定时任务与「手动播报」共用） ----------
 
 
 async def broadcast_group_day(
@@ -102,7 +102,7 @@ async def broadcast_group_day(
     """按指定日期向配置群播报班次聚合名单（图片，降级纯文本）。
 
     announce_empty=False（定时播报）时无排班不发送任何消息，直接视为成功；
-    默认 True（「重播」）时无排班仍发送文本提示，便于管理员确认结果。
+    默认 True（「手动播报」）时无排班仍发送文本提示，便于管理员确认结果。
     """
     if not plugin_config.dutybot_group_id:
         return SendResult(False, "未配置值班群号")

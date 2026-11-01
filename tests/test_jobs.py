@@ -313,7 +313,7 @@ async def test_tomorrow_broadcast(app: App, fake_api, monkeypatch, patch_render)
 
 
 async def test_broadcast_group_day_empty_announces_text(app: App, fake_api, monkeypatch):
-    """「重播 明日」路径（broadcast_group_day 默认）：无排班仍发文本提示，便于确认结果。"""
+    """「手动播报 明日」路径（broadcast_group_day 默认）：无排班仍发文本提示，便于确认结果。"""
     from nonebot_plugin_duty_bot import jobs
     from nonebot_plugin_duty_bot.timeutil import now_beijing
 
