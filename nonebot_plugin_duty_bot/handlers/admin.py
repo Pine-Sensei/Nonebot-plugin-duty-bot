@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import time
-from datetime import date
+from datetime import date, timedelta
 
 from nonebot import get_bots, logger, on_command, require
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
@@ -28,7 +28,7 @@ from ..storage import (
     TASK_TOMORROW,
     get_db,
 )
-from ..timeutil import format_uptime
+from ..timeutil import format_uptime, next_week_range, now_beijing
 from .common import (
     PROCESS_START,
     api_error_reply,
@@ -50,7 +50,7 @@ _ADMIN_MENU = (
     "/绑定列表 - 查看全部绑定\n"
     "/绑定 QQ号 学号 姓名 - 人工绑定\n"
     "/解绑 QQ号 - 解除指定绑定\n"
-    "/重播 [明日|每周] - 补发发送失败的群播报"
+    "/重播 [明日|每周] - 手动重发最近一期群播报"
 )
 
 _PRIVATE_UNBOUND_MENU = (
@@ -141,11 +141,11 @@ async def _handle_bind_list(matcher: Matcher, bot: Bot, event) -> None:
 
 @replay_cmd.handle()
 async def _handle_replay(matcher: Matcher, bot: Bot, event, args = CommandArg()) -> None:
-    """重播：补发最近一期发送失败的群播报。
+    """重播：手动重发最近一期群播报（不关心上次执行是否失败）。
 
-    - 无参数：自动选两类群播报任务中最近一次失败者；
-    - 明日/每周：指定类型补发该类型最近失败的一期；
-    - 本期已成功时提示无需重播；重播按业务键重新查询当前数据并渲染发送。
+    - 无参数：自动选两类群播报任务中最近执行的一类；
+    - 明日/每周：指定类型重发该类型最近一期；
+    - 按业务键重新查询当前数据并渲染发送；无执行记录时按当前时间推算本期。
     """
     if not is_private(event):
         await matcher.finish()  # 管理命令仅私聊，群内一律静默
@@ -165,33 +165,26 @@ async def _handle_replay(matcher: Matcher, bot: Bot, event, args = CommandArg())
         return
 
     db = get_db()
+    now = now_beijing()
     if arg:
         task_id = task_alias[arg]
     else:
         candidates: list[tuple[str, str]] = []
         for tid in (TASK_TOMORROW, TASK_GROUP_WEEKLY):
             state = await db.get_task_state(tid)
-            if state and state.status != "success":
+            if state:
                 candidates.append((state.ran_at, tid))
-        if not candidates:
-            await reply(matcher, bot, event, "当前没有发送失败的群播报，无需重播。")
-            return
         candidates.sort()
-        task_id = candidates[-1][1]
+        task_id = candidates[-1][1] if candidates else TASK_TOMORROW
 
     state = await db.get_task_state(task_id)
-    if state is None:
-        await reply(matcher, bot, event, "该类型播报尚未执行过，无需重播。")
-        return
-    if state.status == "success":
-        await reply(
-            matcher, bot, event, f"本期（{state.business_key}）已成功发送，无需重播。"
-        )
-        return
-    key = state.business_key
+    key = state.business_key if state and state.business_key else None
     if not key:
-        await reply(matcher, bot, event, "该期失败记录缺少业务键，无法重播。")
-        return
+        # 无执行记录（或记录缺少业务键）时按当前时间推算本期
+        if task_id == TASK_TOMORROW:
+            key = (now.date() + timedelta(days=1)).isoformat()
+        else:
+            key = next_week_range(now.date())[0].isoformat()
 
     logger.info(f"管理员重播: {task_id} 期 {key}")
     try:

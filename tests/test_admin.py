@@ -150,13 +150,29 @@ async def test_replay_in_group_silent(app: App, make_events):
     await run_matcher(app, replay_cmd, make_group(USER_QQ, GROUP_ID, "/重播"), [])
 
 
-async def test_replay_nothing_failed(app: App, make_events):
+async def test_replay_no_state_computes_current(app: App, fake_api, monkeypatch, make_events):
+    """无执行记录时不拒绝：按当前时间推算本期（明日）直接重发。"""
+    from nonebot_plugin_duty_bot import render as render_mod
+    from nonebot_plugin_duty_bot.timeutil import now_beijing
+    from nonebot.adapters.onebot.v11 import MessageSegment
+
+    async def fake_render(template_name, view):
+        return b"REPLAY-IMG"
+
+    monkeypatch.setattr(render_mod, "render_template", fake_render)
+
+    key = (now_beijing().date() + timedelta(days=1)).isoformat()
+    fake_api.roster.assignments = [make_assignment(date=key)]
+
     make_private, _ = make_events
     from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
 
     await run_matcher(
         app, replay_cmd, make_private(ADMIN_QQ, "/重播"),
-        [("send_private_msg", {"user_id": ADMIN_QQ, "message": ob("当前没有发送失败的群播报，无需重播。")})],
+        [
+            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
+            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{key}）群播报。")}),
+        ],
     )
 
 
@@ -170,20 +186,31 @@ async def test_replay_invalid_arg(app: App, make_events):
     )
 
 
-async def test_replay_success_state_no_need(app: App, fake_api, make_events):
-    """本期已成功 → 无需重播。"""
+async def test_replay_success_state_still_replays(app: App, fake_api, monkeypatch, make_events):
+    """本期已成功也照样重发（不关心上次执行是否失败）。"""
+    from nonebot_plugin_duty_bot import render as render_mod
     from nonebot_plugin_duty_bot.storage import TASK_TOMORROW, get_db
     from nonebot_plugin_duty_bot.timeutil import now_beijing
+    from nonebot.adapters.onebot.v11 import MessageSegment
+
+    async def fake_render(template_name, view):
+        return b"REPLAY-IMG"
+
+    monkeypatch.setattr(render_mod, "render_template", fake_render)
 
     key = (now_beijing().date() + timedelta(days=1)).isoformat()
     await get_db().set_task_state(TASK_TOMORROW, "success", key, None)
+    fake_api.roster.assignments = [make_assignment(date=key)]
 
     make_private, _ = make_events
     from nonebot_plugin_duty_bot.handlers.admin import replay_cmd
 
     await run_matcher(
         app, replay_cmd, make_private(ADMIN_QQ, f"/重播 明日"),
-        [("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"本期（{key}）已成功发送，无需重播。")})],
+        [
+            ("send_group_msg", {"group_id": GROUP_ID, "message": MessageSegment.image(b"REPLAY-IMG")}),
+            ("send_private_msg", {"user_id": ADMIN_QQ, "message": ob(f"已补发本期（{key}）群播报。")}),
+        ],
     )
 
 
@@ -354,7 +381,7 @@ async def test_help_private_admin(app: App, fake_api, make_events):
         "你还未绑定学号。可用命令：\n/绑定 学号 姓名 - 自助绑定（姓名须与排班一致）\n/帮助 - 查看本菜单"
         "\n\n管理员命令：\n/状态 - 运行体检\n/绑定列表 - 查看全部绑定\n"
         "/绑定 QQ号 学号 姓名 - 人工绑定\n/解绑 QQ号 - 解除指定绑定\n"
-        "/重播 [明日|每周] - 补发发送失败的群播报"
+        "/重播 [明日|每周] - 手动重发最近一期群播报"
     )
     await run_matcher(
         app, help_cmd, make_private(ADMIN_QQ, "/帮助"),
